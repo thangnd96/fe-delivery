@@ -1,10 +1,12 @@
 {
   "name": "fe-delivery",
-  "version": "0.1.0",
+  "version": "0.2.0",
   "private": true,
   "description": "Claude Code plugin: governed front-end delivery (scripts have no dependencies).",
   "type": "module",
-  "engines": { "node": ">=18" },
+  "engines": {
+    "node": ">=18"
+  },
   "scripts": {
     "test": "node --test tests/unit/*.test.mjs",
     "test:contract": "node --test tests/contract/*.test.mjs",

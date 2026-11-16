@@ -2,15 +2,16 @@
 // fe — the CLI the fe-deliver conductor runs (inside the Bash sandbox). It writes only the
 // agent zone (~/.fe-delivery/agent) and prints FE_* trailers that hooks turn into hook-zone state.
 import { execFileSync, spawnSync } from 'node:child_process';
-import { mkdirSync, readFileSync, writeFileSync } from 'node:fs';
+import { mkdirSync, readFileSync, rmSync, writeFileSync } from 'node:fs';
 import { dirname, join } from 'node:path';
 import { repoContext } from './lib/context.mjs';
 import { budgetExceeded } from './lib/diff.mjs';
 import { gateMarker, GATE_IDS, maxTier, requiredGates, tierRank } from './lib/gates.mjs';
-import { head } from './lib/git.mjs';
+import { commonDir, head, toplevel } from './lib/git.mjs';
 import { riskCategories } from './lib/glob.mjs';
 import { blastRadius, graphPath, loadGraph } from './lib/graph.mjs';
-import { feCliPath } from './lib/paths.mjs';
+import { activeRunsFor, applyUninstall, install, MANIFEST, planUninstall, readManifest } from './lib/install.mjs';
+import { feCliPath, repoKey, zones } from './lib/paths.mjs';
 import { buildReport } from './lib/report.mjs';
 import { endConditions, gatesFor, loadRun } from './lib/run.mjs';
 import { validateNamed } from './lib/schema.mjs';
@@ -29,7 +30,9 @@ const HELP = `fe — fe-delivery CLI
   report
   graph ensure
   profile check
-  doctor`;
+  doctor
+  install --profile <file.json|-> [--speckit-installed-by-setup]
+  uninstall [--dry-run] [--json] [--allow-dirty] [--force-runs] [--speckit] [--machine-state]`;
 
 function args(argv) {
   const out = { _: [] };
@@ -381,6 +384,95 @@ function doctor() {
   console.log(`active run: ${ctx.activeRunId || 'none'}`);
 }
 
+// ---------------- install / uninstall ----------------
+function gitRootOrFail() {
+  const root = toplevel(process.cwd());
+  if (!root) fail('not inside a git repository');
+  return root;
+}
+
+function installCmd(o) {
+  const root = gitRootOrFail();
+  if (!o.profile) fail('install needs --profile <file.json|-> (fe-setup prepares it)');
+  const profileText = o.profile === true || o.profile === '-' ? readFileSync(0, 'utf8') : readFileSync(o.profile, 'utf8');
+  let profile;
+  try {
+    profile = JSON.parse(profileText);
+  } catch (e) {
+    fail(`profile is not valid JSON: ${e.message}`);
+  }
+  const errors = validateNamed('profile', profile);
+  if (errors.length) fail(`profile does not match profile.schema.json:\n- ${errors.join('\n- ')}`);
+  let manifest;
+  try {
+    manifest = install(root, { profileText: `${JSON.stringify(profile, null, 2)}\n`, speckitInstalledBySetup: o['speckit-installed-by-setup'] === true });
+  } catch (e) {
+    fail(e.message);
+  }
+  for (const op of manifest.operations) {
+    const extra = op.op === 'json-merge' ? ` (${op.records.length} entries added)` : op.reason ? ` (${op.reason})` : '';
+    console.log(`${op.op.padEnd(12)} ${op.path}${extra}`);
+    for (const c of op.conflicts || []) {
+      console.log(`  kept your value at ${c.path.join('.')}: ${JSON.stringify(c.kept)} (fe-delivery suggests ${JSON.stringify(c.wanted)})`);
+    }
+  }
+  console.log(`\nRecorded in ${MANIFEST}. Commit these files together; \`fe uninstall\` reverts exactly this footprint.`);
+}
+
+function uninstallCmd(o) {
+  const root = gitRootOrFail();
+  const manifest = readManifest(root);
+  if (!manifest) {
+    fail(`no ${MANIFEST} in ${root}. fe-delivery was not installed with \`fe install\`; see the uninstall guide for manual removal.`);
+  }
+  const common = commonDir(root) || join(root, '.git');
+  const key = repoKey(common);
+  const runs = activeRunsFor(join(zones.hook(key), 'active.json'));
+  const paths = manifest.operations.filter((op) => op.op !== 'skip').map((op) => op.path);
+  const dirty = paths.length ? git(root, ['diff', '--name-only', 'HEAD', '--', ...paths]).split('\n').filter(Boolean) : [];
+  const plan = planUninstall(root, manifest);
+  const machine = [zones.agent(key), zones.hook(key)];
+
+  if (o['dry-run']) {
+    if (o.json) {
+      console.log(JSON.stringify({ root, installed_version: manifest.fe_delivery_version, active_runs: runs, uncommitted_manifest_paths: dirty, ...plan, machine_state: machine }, null, 2));
+      return;
+    }
+    console.log(`fe-delivery ${manifest.fe_delivery_version} installed ${manifest.installed_at} in ${root}\n`);
+    console.log('Plan (only these paths change):');
+    for (const s of plan.steps) console.log(`  ${s.action.padEnd(15)} ${s.path} — ${s.why}`);
+    console.log('\nNever touched:');
+    for (const u of plan.untouched) console.log(`  - ${u}`);
+    for (const opt of plan.optional) console.log(`\nOptional ${opt.flag}: ${opt.why} → ${opt.commands.join(' ; ')}`);
+    console.log(`\nMachine state for this repository (removed with --machine-state):\n  ${machine.join('\n  ')}`);
+    if (runs.length) console.log(`\nBLOCKER: active runs in ${runs.map(([w]) => w).join(', ')} (finish them with \`fe run end\`, or pass --force-runs; worktrees are never deleted).`);
+    if (dirty.length) console.log(`\nBLOCKER: uncommitted changes in ${dirty.join(', ')} (commit or stash them, or pass --allow-dirty).`);
+    return;
+  }
+  if (runs.length && !o['force-runs']) fail(`active runs in ${runs.map(([w]) => w).join(', ')}; finish them (\`fe run end\`) or pass --force-runs`);
+  if (dirty.length && !o['allow-dirty']) fail(`uncommitted changes in ${dirty.join(', ')}; commit them first so the uninstall diff is reviewable, or pass --allow-dirty`);
+
+  const { report, violations } = applyUninstall(root, manifest, { speckit: o.speckit === true });
+  for (const line of report) console.log(line);
+  if (o['machine-state']) {
+    for (const dir of machine) {
+      try {
+        rmSync(dir, { recursive: true, force: true });
+        console.log(`${dir}: deleted`);
+      } catch (e) {
+        console.log(`${dir}: NOT deleted (${e.code || e.message}); run this command outside the Claude Code sandbox`);
+      }
+    }
+  }
+  if (violations.length) {
+    console.log(`\nSAFETY CHECK FAILED: paths outside the install manifest changed: ${violations.join(', ')}`);
+    process.exit(2);
+  }
+  console.log('\nSafety check passed: only paths from the install manifest changed.');
+  console.log('Next: review `git status` / `git diff`, commit, then remove the plugin:');
+  console.log('  claude plugin uninstall fe-delivery@piloth-marketplace --scope project');
+}
+
 // ---------------- main ----------------
 const o = args(process.argv.slice(2));
 const [a0, a1] = o._;
@@ -398,5 +490,7 @@ switch (true) {
   case cmd === 'graph ensure': graphEnsure(o); break;
   case cmd === 'profile check': profileCheck(o); break;
   case a0 === 'doctor': doctor(o); break;
+  case a0 === 'install': installCmd(o); break;
+  case a0 === 'uninstall': uninstallCmd(o); break;
   default: console.log(HELP);
 }

@@ -18,10 +18,10 @@ Các quyết định thiết kế (ADR, kèm nguồn: tài liệu Claude Code, S
 | Thành phần | Vai trò |
 |---|---|
 | Skill `fe-deliver` | Conductor, và là skill duy nhất model tự gọi được. Các tier nằm trong `references/`. |
-| Skill `/fe-delivery:fe-setup`, `/fe-delivery:speckit-upgrade` | Cài vào repo; nâng cấp Spec Kit có review. Chỉ chạy khi người dùng gọi. |
+| Skill `/fe-delivery:fe-setup`, `/fe-delivery:fe-uninstall`, `/fe-delivery:speckit-upgrade` | Cài vào repo; gỡ sạch theo manifest; nâng cấp Spec Kit có review. Chỉ chạy khi người dùng gọi. |
 | Agent `fe-intake`, `fe-verifier`, `fe-reviewer` | Intake chỉ đọc; kiểm chứng L2/L3; review độc lập. |
 | `hooks/hooks.json` → `scripts/hook.mjs` | Guard: U1 · S · G0–G6 · SA · P1–P3 · T1. |
-| `scripts/fe.mjs` | CLI cho conductor: `run`, `intake`, `classify`, `gate`, `verify`, `evidence`, `report`, `graph`, `doctor`. |
+| `scripts/fe.mjs` | CLI cho conductor: `run`, `intake`, `classify`, `gate`, `verify`, `evidence`, `report`, `graph`, `doctor`, `install`, `uninstall`. |
 | `schemas/` | profile, intake, classification, evidence, claim. |
 | `compat/speckit.json` | Phiên bản Spec Kit, pilothify và Claude Code mà plugin đã kiểm. |
 
@@ -62,6 +62,24 @@ Plugin được phát hành qua `piloth-marketplace`:
 ```
 
 Sau đó mở repo FE và chạy `/fe-delivery:fe-setup`. pilothify chỉ cài từ GitHub và phải pin tag (xem `compat/speckit.json`).
+
+## Gỡ cài đặt
+
+`fe install`, do `fe-setup` gọi, ghi mọi thay đổi trong repo vào `.fe-delivery/install-manifest.json`. `fe uninstall` chỉ đảo ngược đúng những gì có trong manifest:
+
+- **File chưa bị sửa sau khi cài:** khôi phục y nguyên từng byte.
+- **File đã bị sửa:** chỉ gỡ entry hoặc khối do fe-delivery thêm, phần của team giữ nguyên.
+- **Không bao giờ đụng tới:** `src/`, `specs/`, constitution của Spec Kit, worktree, branch, lịch sử commit.
+- **Safety check:** cuối lệnh, mọi path đã đổi được đối chiếu với manifest. Có path ngoài manifest thì lệnh thoát mã 2.
+
+```text
+/fe-delivery:fe-uninstall                          # xem trước rồi hướng dẫn từng bước
+node "<plugin>/scripts/fe.mjs" uninstall --dry-run # chỉ đọc
+node "<plugin>/scripts/fe.mjs" uninstall [--speckit] [--machine-state]
+claude plugin uninstall fe-delivery@piloth-marketplace --scope project
+```
+
+Chạy bước apply bằng tiền tố `!` hoặc trong terminal, vì sandbox chặn ghi vào `.claude/`.
 
 ## Phát triển
 

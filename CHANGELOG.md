@@ -1,5 +1,24 @@
 # Changelog
 
+## v0.2.0 — 2026-11-16
+
+- **Gỡ cài đặt sạch theo manifest:** `fe install` thay cho việc ghi file bằng tay trong `fe-setup`, và ghi từng thay đổi vào `.fe-delivery/install-manifest.json`:
+  - file tạo mới;
+  - entry thêm vào `.claude/settings.json`;
+  - khối có đánh dấu trong `CLAUDE.md` và `.gitignore`;
+  - thư mục tạo mới.
+- **`fe install` không ghi đè giá trị có sẵn:** chỉ thêm key và rule còn thiếu, và báo xung đột.
+- **`fe uninstall [--dry-run]`:**
+  - khôi phục y nguyên từng byte những file chưa bị sửa sau khi cài;
+  - với file đã bị sửa thì chỉ gỡ phần của fe-delivery;
+  - không đụng `src/`, `specs/`, constitution, worktree, branch;
+  - safety check bằng `git status` (thoát mã 2 nếu có path ngoài manifest bị đổi);
+  - từ chối khi còn run đang mở hoặc có thay đổi chưa commit;
+  - tuỳ chọn `--speckit` (chỉ khi `fe-setup` đã cài Spec Kit) và `--machine-state`.
+- **Skill `/fe-delivery:fe-uninstall`:** xem trước, hướng dẫn apply, kiểm tra lại, rồi gỡ plugin.
+- **`fe-setup`:** không cài git hook của pilothify, vì `fe graph ensure` đã giữ graph mới.
+- **Test:** thêm 5 test cài và gỡ, gồm khôi phục byte-identical, giữ chỉnh sửa của team, `src/` không đổi, các trường hợp bị từ chối, và `pilothify-out/`. Tổng 28 test.
+
 ## v0.1.0 — 2026-11-16
 
 Bản đầu tiên, dựng theo blueprint v2.

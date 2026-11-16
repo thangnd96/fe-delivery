@@ -1,6 +1,6 @@
 {
   "name": "fe-delivery",
-  "version": "0.1.0",
+  "version": "0.2.0",
   "description": "Governed front-end delivery for Claude Code: Jira/Figma intake, two-axis classification, Spec Kit tiers, harness-enforced gates and evidence, pilothify knowledge graph.",
   "author": {
     "name": "ThangND4"
@@ -8,5 +8,13 @@
   "homepage": "https://github.com/thangnd96/fe-delivery",
   "repository": "https://github.com/thangnd96/fe-delivery",
   "license": "MIT",
-  "keywords": ["frontend", "delivery", "spec-kit", "jira", "figma", "guardrails", "pilothify"]
+  "keywords": [
+    "frontend",
+    "delivery",
+    "spec-kit",
+    "jira",
+    "figma",
+    "guardrails",
+    "pilothify"
+  ]
 }
