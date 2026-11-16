@@ -1,5 +1,20 @@
 # Changelog
 
+## Chưa phát hành
+
+- **Contract Spec Kit:** mở rộng thành K0–K9 và K11:
+  - phiên bản nằm trong range;
+  - frontmatter `name` của skill khớp tên thư mục (đây là giá trị tool `Skill` nhận);
+  - `feature.json` lưu đường dẫn tương đối và không đổi branch;
+  - template tasks dùng checkbox;
+  - implement dừng khi checklist chưa tick; converge chỉ append; clarify hỏi từng câu;
+  - `integration upgrade` không ghi đè file đã sửa tay;
+  - git extension không tự cài.
+- **`fe-setup`:** không cài git extension của Spec Kit; khi merge settings thì giữ các hook event mà Spec Kit đã ghi.
+- **Đã kiểm với Spec Kit 1.4.0 thật:** 7/7 contract pass.
+- **Kiểm thật trong Claude Code 2.1.322:** gọi `speckit-plan` khi chưa có `spec.md` bị G1 chặn. Lần chạy này xác nhận tool `Skill` truyền tên skill qua trường `skill`.
+- **Workflow `speckit-update`:** kiểm E1 qua `workflow_dispatch` với bản đã kiểm → không mở PR.
+
 ## v0.1.0 — 2026-11-16 (chưa phát hành)
 
 Bản đầu tiên, dựng theo blueprint v2.

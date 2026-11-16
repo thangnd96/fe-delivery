@@ -20,6 +20,7 @@ Prepare this repository for fe-delivery. Inspect first, then show a plan and wai
   - An existing Spec Kit project: `specify integration install claude`.
   - Otherwise use the documented init. Explain what it touches; no `--force` unless the user approves.
 - **Bug extension:** `specify extension add bug`.
+- **Do not install the Spec Kit `git` extension.** Its mandatory `before_specify` hook creates `{number}-{slug}` branches, while fe-delivery owns worktrees and branch names. If it is already installed, tell the user and propose `specify extension remove git`.
 - **pilothify,** from GitHub only, pinned: `uv tool install "pilothify[leiden,mcp,sql] @ git+https://github.com/thangnd96/pilothify@v0.1.5"`. Never `pip install pilothify`, and never `pilothify install`.
 
 ## 3. Files (merge, never overwrite)
@@ -29,7 +30,7 @@ Prepare this repository for fe-delivery. Inspect first, then show a plan and wai
   - Jira project keys and site from the user.
 
   Validate with `fe profile check`.
-- **`.claude/settings.json`:** merge `templates/settings.example.json` and keep the existing keys.
+- **`.claude/settings.json`:** merge `templates/settings.example.json` and keep the existing keys, including any `hooks` that Spec Kit registered for extension events.
   - Adjust the MCP tool prefixes to the servers actually configured (`/mcp`).
   - Keep `sandbox.filesystem.allowWrite` limited to `~/.fe-delivery/agent`; never the hook zone.
 - **`CLAUDE.md`:** append `templates/claude-md-block.md`. It authorises worktrees for delivery runs.
