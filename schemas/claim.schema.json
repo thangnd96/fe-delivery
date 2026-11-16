@@ -1,0 +1,22 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "fe-delivery/claim.schema.json",
+  "title": "UI / visual check reported by the agent (L2/L3). Reported, not measured.",
+  "type": "object",
+  "required": ["level", "kind", "status", "at"],
+  "properties": {
+    "level": { "enum": ["L2", "L3"] },
+    "kind": { "enum": ["ui_smoke", "visual_compare"] },
+    "status": { "enum": ["pass", "fail", "not_verified", "not_run"] },
+    "reason": { "type": "string", "minLength": 1 },
+    "viewport": { "type": "string" },
+    "artifacts": { "type": "array", "items": { "type": "string" } },
+    "at": { "type": "string" }
+  },
+  "allOf": [
+    {
+      "if": { "properties": { "status": { "enum": ["not_verified", "not_run"] } } },
+      "then": { "required": ["reason"] }
+    }
+  ]
+}

@@ -1,0 +1,33 @@
+{
+  "speckit": {
+    "tested": "1.4.0",
+    "range": ">=1.4.0 <1.5.0",
+    "install": "uv tool install specify-cli==1.4.0",
+    "required_core_skills": [
+      "speckit-constitution",
+      "speckit-specify",
+      "speckit-clarify",
+      "speckit-plan",
+      "speckit-tasks",
+      "speckit-analyze",
+      "speckit-checklist",
+      "speckit-implement",
+      "speckit-converge"
+    ],
+    "required_extensions": {
+      "bug": ["speckit-bug-assess", "speckit-bug-fix", "speckit-bug-test"]
+    }
+  },
+  "pilothify": {
+    "tested": "0.1.5",
+    "min": "0.1.5",
+    "install": "uv tool install \"pilothify[leiden,mcp,sql] @ git+https://github.com/thangnd96/pilothify@v0.1.5\""
+  },
+  "claude_code": {
+    "min": "2.1.314",
+    "reason": "permissions.blockWritesOutsideWorkingDirectories; hook onFailure needs 2.1.295"
+  },
+  "node": {
+    "min": "18.0.0"
+  }
+}

@@ -1,0 +1,115 @@
+# U1 — weekly Spec Kit release detection for fe-delivery.
+# Installs the candidate Spec Kit and the pinned pilothify, runs the deterministic contract
+# tests (no LLM calls) and opens a PR. Never auto-merges. Pin third-party actions by SHA.
+name: speckit-update
+
+on:
+  schedule:
+    - cron: "37 23 * * 2"          # Tuesday 23:37 UTC = Wednesday 06:37 Asia/Ho_Chi_Minh; avoid :00
+  workflow_dispatch:
+    inputs:
+      target_version:
+        description: "Spec Kit version to test (empty = latest release)"
+        required: false
+        default: ""
+
+permissions:
+  contents: write
+  pull-requests: write
+
+concurrency:
+  group: speckit-update
+  cancel-in-progress: false
+
+jobs:
+  check:
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    steps:
+      - uses: actions/checkout@v4          # pin by SHA
+      - uses: actions/setup-node@v4        # pin by SHA
+        with:
+          node-version: 22
+      - uses: astral-sh/setup-uv@v6        # pin by SHA
+
+      - name: Resolve versions
+        id: v
+        env:
+          GH_TOKEN: ${{ github.token }}
+          TARGET: ${{ inputs.target_version }}
+        run: |
+          tested=$(node -p 'require("./compat/speckit.json").speckit.tested')
+          if [ -n "$TARGET" ]; then latest="$TARGET"; else
+            latest=$(gh api repos/github/spec-kit/releases/latest --jq .tag_name | sed 's/^v//'); fi
+          echo "tested=$tested" >> "$GITHUB_OUTPUT"
+          echo "latest=$latest" >> "$GITHUB_OUTPUT"
+          if [ "$tested" = "$latest" ]; then echo "new=false" >> "$GITHUB_OUTPUT"; else echo "new=true" >> "$GITHUB_OUTPUT"; fi
+
+      - name: Install candidate Spec Kit and pinned pilothify
+        if: steps.v.outputs.new == 'true'
+        env:
+          LATEST: ${{ steps.v.outputs.latest }}
+        run: |
+          uv tool install "specify-cli==${LATEST}"
+          uv tool install "pilothify[leiden,mcp,sql] @ git+https://github.com/thangnd96/pilothify@v0.1.5"
+          specify version
+          pilothify --version
+
+      - name: Initialise fixture
+        if: steps.v.outputs.new == 'true'
+        run: |
+          git config --global user.email ci@example.invalid
+          git config --global user.name ci
+          work="$RUNNER_TEMP/fixture"
+          cp -R tests/fixtures/fe-app "$work"
+          cd "$work"
+          git init -q -b main && git add -A && git commit -qm fixture
+          specify init --here --integration claude --non-interactive --ignore-agent-tools --force
+          specify extension add bug
+
+      - name: Contract tests
+        if: steps.v.outputs.new == 'true'
+        id: contract
+        continue-on-error: true
+        env:
+          FIXTURE: ${{ runner.temp }}/fixture
+          SPECKIT_CANDIDATE: ${{ steps.v.outputs.latest }}
+        run: |
+          set -o pipefail
+          node --test tests/contract/*.test.mjs 2>&1 | tee "$RUNNER_TEMP/contract.log"
+
+      - name: Open PR (never auto-merge)
+        if: steps.v.outputs.new == 'true'
+        env:
+          GH_TOKEN: ${{ github.token }}
+          LATEST: ${{ steps.v.outputs.latest }}
+          OUTCOME: ${{ steps.contract.outcome }}
+        run: |
+          branch="chore/speckit-v${LATEST}"
+          git switch -c "$branch"
+          node -e '
+            const fs = require("fs");
+            const p = "compat/speckit.json";
+            const d = JSON.parse(fs.readFileSync(p, "utf8"));
+            const v = process.env.LATEST;
+            const [maj, min] = v.split(".").map(Number);
+            d.speckit.tested = v;
+            d.speckit.range = `>=${v} <${maj}.${min + 1}.0`;
+            d.speckit.install = `uv tool install specify-cli==${v}`;
+            fs.writeFileSync(p, JSON.stringify(d, null, 2) + "\n");
+          '
+          git -c user.email=ci@example.invalid -c user.name=speckit-update commit -am "chore(speckit): test v${LATEST}"
+          git push -u origin "$branch"
+          title="chore(speckit): support v${LATEST}"
+          if [ "$OUTCOME" != "success" ]; then title="BREAKING ${title}"; fi
+          {
+            echo "Contract tests: ${OUTCOME}"
+            echo
+            echo '```'
+            tail -n 80 "$RUNNER_TEMP/contract.log"
+            echo '```'
+            echo
+            echo "Release notes: https://github.com/github/spec-kit/releases/tag/v${LATEST}"
+            echo "Never auto-merge. After merge: claude plugin tag --push"
+          } > "$RUNNER_TEMP/body.md"
+          gh pr create --title "$title" --body-file "$RUNNER_TEMP/body.md"

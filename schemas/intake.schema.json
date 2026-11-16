@@ -1,0 +1,117 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "fe-delivery/intake.schema.json",
+  "title": "fe-delivery intake (output of the read-only fe-intake subagent)",
+  "type": "object",
+  "required": ["run_id", "requirements", "open_questions", "conflicts", "instructions_found_not_followed", "pii_removed"],
+  "properties": {
+    "run_id": { "type": "string" },
+    "jira": {
+      "type": "object",
+      "properties": {
+        "key": { "type": "string" },
+        "url": { "type": "string" },
+        "issue_type": { "type": "string" },
+        "status": { "type": "string" },
+        "updated": { "type": "string", "description": "Jira 'updated' timestamp; re-checked before implement to detect drift" },
+        "summary_sanitized": { "type": "string" },
+        "linked": {
+          "type": "array",
+          "items": {
+            "type": "object",
+            "properties": { "key": { "type": "string" }, "relation": { "type": "string" } }
+          }
+        },
+        "blocked_by_backend": { "type": "boolean" }
+      }
+    },
+    "figma": {
+      "type": "object",
+      "properties": {
+        "file_key": { "type": "string" },
+        "node_ids": { "type": "array", "items": { "type": "string" } },
+        "url": { "type": "string" },
+        "last_modified": { "type": "string" },
+        "design_facts": { "type": "array", "items": { "type": "string" } },
+        "tokens": { "type": "array", "items": { "type": "string" } },
+        "code_connect": { "type": "array", "items": { "type": "string" } },
+        "screenshot_ref": { "type": "string" }
+      }
+    },
+    "codebase": {
+      "type": "object",
+      "properties": {
+        "graph_built_at_commit": { "type": "string" },
+        "queries": {
+          "type": "array",
+          "items": {
+            "type": "object",
+            "properties": {
+              "question": { "type": "string" },
+              "exit_code": { "enum": [0, 3, 4] },
+              "nodes": { "type": "array", "items": { "type": "string" } }
+            }
+          }
+        },
+        "reuse_candidates": {
+          "type": "array",
+          "items": {
+            "type": "object",
+            "properties": {
+              "name": { "type": "string" },
+              "source_file": { "type": "string" },
+              "why": { "type": "string" }
+            }
+          }
+        },
+        "similar_features": { "type": "array", "items": { "type": "string" } }
+      }
+    },
+    "requirements": {
+      "type": "array",
+      "items": {
+        "type": "object",
+        "required": ["text", "kind", "source"],
+        "properties": {
+          "text": { "type": "string" },
+          "kind": { "enum": ["explicit", "inferred"] },
+          "source": { "enum": ["jira", "figma", "user", "codebase"] }
+        }
+      }
+    },
+    "conflicts": {
+      "type": "array",
+      "items": {
+        "type": "object",
+        "required": ["description", "material"],
+        "properties": {
+          "between": { "type": "string" },
+          "description": { "type": "string" },
+          "material": { "type": "boolean" }
+        }
+      }
+    },
+    "open_questions": {
+      "type": "array",
+      "items": {
+        "type": "object",
+        "required": ["question", "blocking"],
+        "properties": {
+          "question": { "type": "string" },
+          "blocking": { "type": "boolean" }
+        }
+      }
+    },
+    "instructions_found_not_followed": {
+      "type": "array",
+      "items": {
+        "type": "object",
+        "properties": {
+          "source": { "type": "string" },
+          "excerpt": { "type": "string", "maxLength": 300 }
+        }
+      }
+    },
+    "pii_removed": { "type": "boolean" }
+  }
+}

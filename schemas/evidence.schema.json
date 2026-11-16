@@ -1,0 +1,38 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "fe-delivery/evidence.schema.json",
+  "title": "fe-delivery evidence record (written by scripts, never by the model)",
+  "type": "object",
+  "required": ["run_id", "items", "last_edit_at"],
+  "properties": {
+    "run_id": { "type": "string" },
+    "last_edit_at": { "type": "string", "format": "date-time" },
+    "items": {
+      "type": "array",
+      "items": {
+        "type": "object",
+        "required": ["level", "kind", "status", "git_sha", "finished_at"],
+        "properties": {
+          "level": { "enum": ["L0", "L1", "L2", "L3"] },
+          "kind": { "enum": ["typecheck", "lint", "build", "test", "regression_test", "ui_smoke", "visual_compare"] },
+          "command": { "type": "string" },
+          "exit_code": { "type": "integer" },
+          "status": { "enum": ["pass", "fail", "not_run", "not_verified"] },
+          "reason": { "type": "string", "description": "Required when status is not_run or not_verified" },
+          "git_sha": { "type": "string" },
+          "started_at": { "type": "string", "format": "date-time" },
+          "finished_at": { "type": "string", "format": "date-time" },
+          "viewport": { "type": "string" },
+          "artifacts": { "type": "array", "items": { "type": "string" } },
+          "output_excerpt": { "type": "string", "maxLength": 2000 }
+        },
+        "allOf": [
+          {
+            "if": { "properties": { "status": { "enum": ["not_run", "not_verified"] } } },
+            "then": { "required": ["reason"] }
+          }
+        ]
+      }
+    }
+  }
+}

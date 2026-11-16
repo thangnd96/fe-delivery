@@ -1,0 +1,122 @@
+{
+  "version": 1,
+  "project": {
+    "name": "fe-delivery-fixture",
+    "package_manager": "npm",
+    "monorepo": false
+  },
+  "jira": {
+    "site": "https://example.atlassian.net",
+    "project_keys": [
+      "PROJ"
+    ],
+    "branch_template": "feature/{jira_key}-{slug}"
+  },
+  "checks": {
+    "typecheck": "node -e \"process.exit(0)\"",
+    "lint": "node -e \"process.exit(0)\"",
+    "test": "node -e \"process.exit(0)\"",
+    "build": "node -e \"process.exit(0)\""
+  },
+  "dev": {
+    "start": "pnpm dev",
+    "url": "http://localhost:5173",
+    "storybook_url": null
+  },
+  "visual_qa": {
+    "viewports": [
+      {
+        "name": "mobile",
+        "width": 375,
+        "height": 812
+      },
+      {
+        "name": "desktop",
+        "width": 1440,
+        "height": 900
+      }
+    ],
+    "mocks": "none"
+  },
+  "tiers": {
+    "trivial": {
+      "max_files": 3,
+      "max_loc": 60
+    },
+    "small": {
+      "max_files": 8,
+      "max_loc": 300
+    },
+    "medium": {
+      "max_files": 25,
+      "max_loc": 1200
+    }
+  },
+  "risk": {
+    "globs": {
+      "auth": [
+        "src/**/auth/**",
+        "src/**/guards/**",
+        "src/**/interceptors/**",
+        "src/**/session/**"
+      ],
+      "api_client": [
+        "src/**/api/**",
+        "src/**/services/**",
+        "*.gen.ts",
+        "src/**/query-client.*"
+      ],
+      "state": [
+        "src/**/store/**",
+        "src/**/slices/**"
+      ],
+      "design_tokens": [
+        "tailwind.config.*",
+        "src/**/theme/**",
+        "src/**/tokens/**",
+        "src/**/*.css"
+      ],
+      "build_config": [
+        "vite.config.*",
+        "tsconfig*.json",
+        "turbo.json",
+        ".env*",
+        "service-worker.*"
+      ],
+      "dependencies": [
+        "package.json",
+        "pnpm-lock.yaml",
+        "package-lock.json",
+        "yarn.lock"
+      ],
+      "i18n_analytics": [
+        "src/**/locales/**",
+        "src/**/i18n/**",
+        "src/**/analytics/**"
+      ],
+      "routing_root": [
+        "src/router/**",
+        "src/routes/**",
+        "src/App.tsx"
+      ]
+    },
+    "content_patterns": [
+      "dangerouslySetInnerHTML",
+      "window.location"
+    ],
+    "blast_radius": {
+      "source": "pilothify",
+      "edges": "EXTRACTED",
+      "depth": 2,
+      "affected_threshold": 2,
+      "cross_package": true
+    }
+  },
+  "versions": {
+    "speckit": "1.4.0",
+    "pilothify": "0.1.5"
+  },
+  "data": {
+    "commit_intake_summary": true
+  }
+}

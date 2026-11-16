@@ -1,0 +1,108 @@
+{
+  "permissions": {
+    "allow": [
+      "mcp__atlassian__get*",
+      "mcp__atlassian__search*",
+      "mcp__atlassian__lookup*",
+      "mcp__atlassian__fetch",
+      "mcp__atlassian__atlassianUserInfo",
+      "mcp__claude_ai_Atlassian__get*",
+      "mcp__claude_ai_Atlassian__search*",
+      "mcp__claude_ai_Atlassian__lookup*",
+      "mcp__claude_ai_Atlassian__fetch",
+      "mcp__claude_ai_Atlassian__atlassianUserInfo",
+      "mcp__plugin_figma_figma__create_session",
+      "mcp__plugin_figma_figma__get_design_context",
+      "mcp__plugin_figma_figma__get_metadata",
+      "mcp__plugin_figma_figma__get_screenshot",
+      "mcp__plugin_figma_figma__get_variable_defs",
+      "mcp__plugin_figma_figma__get_code_connect_map",
+      "mcp__plugin_figma_figma__get_libraries",
+      "mcp__plugin_figma_figma__search_design_system",
+      "mcp__plugin_chrome-devtools-mcp_chrome-devtools__*",
+      "Bash(pilothify --version)",
+      "Bash(pilothify query *)",
+      "Bash(pilothify explain *)",
+      "Bash(pilothify path *)",
+      "Bash(pilothify affected *)",
+      "Bash(pilothify god-nodes *)",
+      "Bash(pilothify update .)",
+      "Bash(pilothify save-result *)",
+      "Bash(specify version)",
+      "Bash(specify self check)",
+      "Bash(specify integration status)",
+      "Bash(pnpm typecheck)",
+      "Bash(pnpm lint)",
+      "Bash(pnpm test *)",
+      "Bash(pnpm build)"
+    ],
+    "ask": [
+      "mcp__atlassian__create*",
+      "mcp__atlassian__edit*",
+      "mcp__atlassian__update*",
+      "mcp__atlassian__transition*",
+      "mcp__atlassian__add*",
+      "mcp__atlassian__delete*",
+      "mcp__claude_ai_Atlassian__create*",
+      "mcp__claude_ai_Atlassian__edit*",
+      "mcp__claude_ai_Atlassian__update*",
+      "mcp__claude_ai_Atlassian__transition*",
+      "mcp__claude_ai_Atlassian__add*",
+      "mcp__claude_ai_Atlassian__delete*",
+      "mcp__plugin_figma_figma__use_figma",
+      "mcp__plugin_figma_figma__generate_figma_design",
+      "mcp__plugin_figma_figma__send_code_to_figma",
+      "mcp__plugin_figma_figma__upload_assets",
+      "mcp__plugin_figma_figma__create_new_file",
+      "mcp__plugin_figma_figma__add_code_connect_map",
+      "mcp__plugin_figma_figma__send_code_connect_mappings",
+      "mcp__plugin_figma_figma__download_assets",
+      "Bash(git push *)",
+      "Bash(glab mr create *)",
+      "Bash(gh pr create *)",
+      "Bash(pnpm add *)",
+      "Bash(pnpm install *)",
+      "Bash(npm install *)",
+      "Bash(yarn add *)",
+      "Bash(specify self upgrade *)",
+      "Bash(specify integration upgrade *)",
+      "Bash(specify extension *)",
+      "Edit(./.fe-delivery/**)",
+      "Edit(./.claude/**)",
+      "Edit(./.specify/memory/**)"
+    ],
+    "deny": [
+      "Read(.env)",
+      "Read(.env.*)",
+      "Read(!.env.example)",
+      "Read(*.pem)",
+      "Read(*.key)",
+      "Bash(claude *)",
+      "Bash(specify workflow run *)",
+      "Bash(specify workflow resume *)",
+      "Bash(git push --force *)",
+      "Bash(git push -f *)"
+    ],
+    "disableBypassPermissionsMode": "disable",
+    "blockWritesOutsideWorkingDirectories": true
+  },
+  "sandbox": {
+    "enabled": true,
+    "filesystem": {
+      "allowWrite": [
+        "~/.fe-delivery/agent"
+      ]
+    }
+  },
+  "extraKnownMarketplaces": {
+    "piloth-marketplace": {
+      "source": {
+        "source": "github",
+        "repo": "thangnd96/piloth"
+      }
+    }
+  },
+  "enabledPlugins": {
+    "fe-delivery@piloth-marketplace": true
+  }
+}

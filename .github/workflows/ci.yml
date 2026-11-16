@@ -1,0 +1,25 @@
+name: ci
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  test:
+    runs-on: ubuntu-latest
+    strategy:
+      matrix:
+        node: [18, 20, 22]
+    steps:
+      - uses: actions/checkout@v4          # pin by SHA
+      - uses: actions/setup-node@v4        # pin by SHA
+        with:
+          node-version: ${{ matrix.node }}
+      - run: git config --global user.email ci@example.invalid && git config --global user.name ci
+      - run: npm run check
+      - run: npm test

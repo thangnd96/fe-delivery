@@ -1,0 +1,270 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "fe-delivery/classification.schema.json",
+  "title": "fe-delivery classification record",
+  "type": "object",
+  "required": [
+    "run_id",
+    "task_type",
+    "checkpoint",
+    "tier",
+    "tier_floor",
+    "size",
+    "risk_flags",
+    "blocking_questions",
+    "history"
+  ],
+  "properties": {
+    "run_id": {
+      "type": "string"
+    },
+    "task_type": {
+      "enum": [
+        "question",
+        "documentation",
+        "bug",
+        "feature",
+        "refactor",
+        "chore"
+      ]
+    },
+    "sources": {
+      "type": "object",
+      "properties": {
+        "jira_keys": {
+          "type": "array",
+          "items": {
+            "type": "string"
+          }
+        },
+        "figma_urls": {
+          "type": "array",
+          "items": {
+            "type": "string"
+          }
+        }
+      }
+    },
+    "checkpoint": {
+      "enum": [
+        "C0",
+        "C1",
+        "C2",
+        "C3",
+        "C4"
+      ]
+    },
+    "size": {
+      "type": "object",
+      "required": [
+        "scope",
+        "logic_state",
+        "data_api",
+        "design"
+      ],
+      "properties": {
+        "scope": {
+          "$ref": "#/$defs/axis"
+        },
+        "logic_state": {
+          "$ref": "#/$defs/axis"
+        },
+        "data_api": {
+          "$ref": "#/$defs/axis"
+        },
+        "design": {
+          "$ref": "#/$defs/axis"
+        }
+      }
+    },
+    "model_tier": {
+      "$ref": "#/$defs/tier"
+    },
+    "tier_floor": {
+      "$ref": "#/$defs/tier"
+    },
+    "tier": {
+      "$ref": "#/$defs/tier"
+    },
+    "floor_reasons": {
+      "type": "array",
+      "items": {
+        "type": "string"
+      }
+    },
+    "risk_flags": {
+      "type": "array",
+      "items": {
+        "type": "object",
+        "required": [
+          "category",
+          "source"
+        ],
+        "properties": {
+          "category": {
+            "type": "string"
+          },
+          "source": {
+            "enum": [
+              "glob",
+              "graph",
+              "content_pattern",
+              "jira_link"
+            ]
+          },
+          "matched_paths": {
+            "type": "array",
+            "items": {
+              "type": "string"
+            }
+          },
+          "controls": {
+            "type": "array",
+            "items": {
+              "enum": [
+                "gate",
+                "checklist",
+                "regression_test",
+                "reviewer"
+              ]
+            }
+          },
+          "detail": {
+            "type": "string"
+          }
+        }
+      }
+    },
+    "blast_radius": {
+      "type": "object",
+      "properties": {
+        "graph_built_at_commit": {
+          "type": [
+            "string",
+            "null"
+          ]
+        },
+        "edges_counted": {
+          "const": "EXTRACTED"
+        },
+        "depth": {
+          "type": "integer",
+          "minimum": 1,
+          "maximum": 6
+        },
+        "dependent_files": {
+          "type": "integer",
+          "minimum": 0
+        },
+        "packages": {
+          "type": "array",
+          "items": {
+            "type": "string"
+          }
+        },
+        "threshold": {
+          "type": "integer"
+        },
+        "exceeded": {
+          "type": "boolean"
+        }
+      }
+    },
+    "blocking_questions": {
+      "type": "array",
+      "items": {
+        "type": "string"
+      }
+    },
+    "override": {
+      "type": "object",
+      "properties": {
+        "requested_tier": {
+          "$ref": "#/$defs/tier"
+        },
+        "reason": {
+          "type": "string"
+        },
+        "below_floor": {
+          "type": "boolean"
+        },
+        "approval_gate_id": {
+          "type": "string"
+        }
+      }
+    },
+    "predicted_files": {
+      "type": "array",
+      "items": {
+        "type": "string"
+      }
+    },
+    "actual_files": {
+      "type": "array",
+      "items": {
+        "type": "string"
+      }
+    },
+    "history": {
+      "type": "array",
+      "items": {
+        "type": "object",
+        "required": [
+          "checkpoint",
+          "tier",
+          "at"
+        ],
+        "properties": {
+          "checkpoint": {
+            "enum": [
+              "C0",
+              "C1",
+              "C2",
+              "C3",
+              "C4"
+            ]
+          },
+          "tier": {
+            "$ref": "#/$defs/tier"
+          },
+          "reason": {
+            "type": "string"
+          },
+          "at": {
+            "type": "string",
+            "format": "date-time"
+          }
+        }
+      }
+    }
+  },
+  "$defs": {
+    "tier": {
+      "enum": [
+        "trivial",
+        "small",
+        "medium",
+        "large",
+        "bug"
+      ]
+    },
+    "axis": {
+      "type": "object",
+      "required": [
+        "score",
+        "evidence"
+      ],
+      "properties": {
+        "score": {
+          "type": "integer",
+          "minimum": 0,
+          "maximum": 2
+        },
+        "evidence": {
+          "type": "string",
+          "minLength": 1
+        }
+      }
+    }
+  }
+}

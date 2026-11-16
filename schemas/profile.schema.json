@@ -1,0 +1,112 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "fe-delivery/profile.schema.json",
+  "title": ".fe-delivery/profile.json — per-repository policy",
+  "type": "object",
+  "required": ["version", "jira", "checks", "tiers", "risk"],
+  "properties": {
+    "version": { "const": 1 },
+    "project": {
+      "type": "object",
+      "properties": {
+        "name": { "type": "string" },
+        "package_manager": { "enum": ["pnpm", "npm", "yarn", "bun"] },
+        "monorepo": { "type": "boolean" }
+      }
+    },
+    "jira": {
+      "type": "object",
+      "required": ["project_keys"],
+      "properties": {
+        "site": { "type": "string" },
+        "project_keys": { "type": "array", "items": { "type": "string", "pattern": "^[A-Z][A-Z0-9_]+$" } },
+        "branch_template": { "type": "string" }
+      }
+    },
+    "checks": {
+      "type": "object",
+      "properties": {
+        "typecheck": { "type": ["string", "null"] },
+        "lint": { "type": ["string", "null"] },
+        "test": { "type": ["string", "null"] },
+        "build": { "type": ["string", "null"] }
+      }
+    },
+    "dev": {
+      "type": "object",
+      "properties": {
+        "start": { "type": ["string", "null"] },
+        "url": { "type": ["string", "null"] },
+        "storybook_url": { "type": ["string", "null"] }
+      }
+    },
+    "visual_qa": {
+      "type": "object",
+      "properties": {
+        "viewports": {
+          "type": "array",
+          "items": {
+            "type": "object",
+            "required": ["name", "width", "height"],
+            "properties": {
+              "name": { "type": "string" },
+              "width": { "type": "integer", "minimum": 200 },
+              "height": { "type": "integer", "minimum": 200 }
+            }
+          }
+        },
+        "mocks": { "enum": ["msw", "none"] }
+      }
+    },
+    "tiers": {
+      "type": "object",
+      "required": ["trivial", "small", "medium"],
+      "properties": {
+        "trivial": { "$ref": "#/$defs/budget" },
+        "small": { "$ref": "#/$defs/budget" },
+        "medium": { "$ref": "#/$defs/budget" }
+      }
+    },
+    "risk": {
+      "type": "object",
+      "required": ["globs"],
+      "properties": {
+        "globs": { "type": "object" },
+        "content_patterns": { "type": "array", "items": { "type": "string" } },
+        "blast_radius": {
+          "type": "object",
+          "properties": {
+            "source": { "const": "pilothify" },
+            "edges": { "const": "EXTRACTED" },
+            "depth": { "type": "integer", "minimum": 1, "maximum": 6 },
+            "affected_threshold": { "type": "integer", "minimum": 1 },
+            "cross_package": { "type": "boolean" }
+          }
+        }
+      }
+    },
+    "versions": {
+      "type": "object",
+      "properties": {
+        "speckit": { "type": "string" },
+        "pilothify": { "type": "string" }
+      }
+    },
+    "data": {
+      "type": "object",
+      "properties": {
+        "commit_intake_summary": { "type": "boolean" }
+      }
+    }
+  },
+  "$defs": {
+    "budget": {
+      "type": "object",
+      "required": ["max_files", "max_loc"],
+      "properties": {
+        "max_files": { "type": "integer", "minimum": 1 },
+        "max_loc": { "type": "integer", "minimum": 1 }
+      }
+    }
+  }
+}

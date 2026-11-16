@@ -1,0 +1,18 @@
+# .pilothifyignore for a front-end repository (added on top of .gitignore).
+# Keep source, shared components, hooks, API clients and generated API types in the graph;
+# drop build output and heavy assets that add nodes without helping navigation.
+dist/
+build/
+out/
+.next/
+coverage/
+storybook-static/
+.turbo/
+.vite/
+*.min.js
+*.map
+public/
+src/assets/
+# Uncomment when generated API clients are very large and noisy:
+# src/**/__generated__/
+.claude/
