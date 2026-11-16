@@ -14,7 +14,7 @@ Prepare this repository for fe-delivery. Inspect first, then show a plan and wai
 - Repo root, branch and `git status` (the working tree should be clean); the package manager and package scripts; monorepo layout.
 - Existing `CLAUDE.md`, `AGENTS.md`, `.claude/`, `.mcp.json` and `.specify/`.
 - Test tooling: vitest/jest, MSW, Storybook, Playwright.
-- MCP servers: there must be exactly **one** Atlassian server, on the v2 endpoint.
+- MCP servers: note which Atlassian and Figma servers are connected; their tool prefixes decide which permission rules apply. If an Atlassian server uses the deprecated v1 endpoint, remind the user that it can be reconnected on `https://mcp.atlassian.com/v2/mcp`. Do not change the user's MCP configuration.
 - Run `node "<plugin>/scripts/fe.mjs" doctor`.
 
 ## 2. Prerequisites (each needs approval)
@@ -28,9 +28,10 @@ Prepare this repository for fe-delivery. Inspect first, then show a plan and wai
 
 ## 3. Profile
 Draft `.fe-delivery/profile.json` from `templates/profile.example.json` and show it to the user:
-- checks from the real package scripts (use `null` when a script does not exist);
-- risk globs adapted to the real tree, plus the hubs from `pilothify god-nodes --json --top 30`;
-- Jira project keys and site from the user.
+- checks from the real package scripts (use `null` when a script does not exist). Offer to run each one on the clean checkout and report which are red. Explain that a run reaches READY FOR REVIEW only when every configured check passes; the user decides whether to fix a red check, use a narrower command, or set it to `null`;
+- risk globs adapted to the real tree, plus the files of the hubs from `pilothify god-nodes --json --top 30` (graph nodes carry `source_file`);
+- Jira project keys from the user, used only to recognise ticket keys in prompts (no Jira site is needed; leave the list empty when the team does not use Jira);
+- `rollout.mode`: ask the user. `full` (the default) enables implementation; `shadow` makes every run stop after planning, which suits a trial without code changes.
 
 ## 4. Install (writes files and the manifest)
 Run, with the approved profile on stdin:
@@ -54,7 +55,7 @@ Write `.specify/memory/constitution.md` from the real conventions, and ask befor
 
 ## 6. Graph, baseline, commit
 - Build the graph with `fe graph ensure`. Report the node count and build time.
-- Tell the user to record the token baseline from a pilothify checkout: `python -m tools.adherence <this repo>`.
+- Tell the user to record the token baseline from a pilothify checkout: `python -m tools.adherence <this repo>`. It reads Claude Code transcripts of this path on the machine that runs it (kept about 30 days by default), so each developer who already uses Claude Code here runs it on their own machine.
 - Ask the user to review `git status` and commit the profile, the manifest and the merged files together.
 
 ## 7. Contributors
@@ -63,4 +64,4 @@ Every contributor runs, after trusting the folder:
 `enabledPlugins` alone does not install the plugin.
 
 ## 8. Shadow run
-Offer a shadow run on 3 tickets the user names: `/fe-delivery:fe-deliver [stop-after:plan] <KEY>`. It makes no source edits; report the classifications.
+Offer a shadow run on 3 tickets the user names: `/fe-delivery:fe-deliver <KEY>` when `rollout.mode` is `shadow`, otherwise `/fe-delivery:fe-deliver [stop-after:plan] <KEY>`. Hooks deny product-source edits (`[G7]`); report the classifications.

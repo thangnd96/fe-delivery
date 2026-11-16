@@ -19,6 +19,60 @@ export const PROFILE = '.fe-delivery/profile.json';
 const sha = (text) => createHash('sha256').update(text).digest('hex');
 const read = (root, rel) => readFileSync(join(root, rel), 'utf8');
 const exists = (root, rel) => existsSync(join(root, rel));
+const fileSha = (abs) => createHash('sha256').update(readFileSync(abs)).digest('hex');
+// Tests point this at a stub; real uninstalls use the Spec Kit CLI on PATH.
+const specifyBin = () => process.env.FE_DELIVERY_SPECIFY_BIN || 'specify';
+
+// ---------------- Spec Kit footprint (only when fe-setup installed Spec Kit) ----------------
+// Files `specify init` / `specify extension add` created: under .specify/, the speckit-* skills
+// and speckit commands. Recorded at install time so `fe uninstall --speckit` can remove exactly
+// those that are still unchanged and keep the ones the team edited (for example the constitution).
+const isSpeckitPath = (p) => p.startsWith('.specify/') || /^\.claude\/skills\/speckit-[^/]+\//.test(p) || /^\.claude\/commands\/speckit[^/]*$/.test(p);
+
+function walk(root, rel, out) {
+  let entries;
+  try {
+    entries = readdirSync(join(root, rel), { withFileTypes: true });
+  } catch {
+    return out;
+  }
+  for (const e of entries) {
+    const p = `${rel}/${e.name}`;
+    if (e.isDirectory()) walk(root, p, out);
+    else if (e.isFile() && isSpeckitPath(p)) out.push(p);
+  }
+  return out;
+}
+
+export function speckitFiles(root) {
+  return ['.specify', '.claude/skills', '.claude/commands'].flatMap((d) => walk(root, d, [])).sort();
+}
+
+function pruneEmptyDirs(root, rel) {
+  const abs = join(root, rel);
+  let entries;
+  try {
+    entries = readdirSync(abs, { withFileTypes: true });
+  } catch {
+    return;
+  }
+  for (const e of entries) if (e.isDirectory()) pruneEmptyDirs(root, `${rel}/${e.name}`);
+  if (readdirSync(abs).length === 0) rmSync(abs, { recursive: true });
+}
+
+// Paths git ignores in this repository, with the rule that ignores them.
+export function ignoredBy(root, paths) {
+  const res = spawnSync('git', ['check-ignore', '-v', '--no-index', '--', ...paths], { cwd: root, encoding: 'utf8' });
+  const out = {};
+  for (const line of (res.stdout || '').split('\n').filter(Boolean)) {
+    const [rule, path] = line.split('\t');
+    // -v also reports a matching negation ("!pattern"): that path is re-included, not ignored.
+    const pattern = rule.split(':').slice(2).join(':');
+    if (path && !pattern.startsWith('!')) out[path] = rule;
+  }
+  return out;
+}
+
 
 let createdDirs = null; // collected during install so uninstall can remove directories it created
 
@@ -214,10 +268,17 @@ export function install(root, { profileText, speckitInstalledBySetup = false }) 
     fe_delivery_version: pluginVersion(),
     installed_at: new Date().toISOString(),
     speckit_installed_by_setup: Boolean(speckitInstalledBySetup),
+    speckit_files: speckitInstalledBySetup ? speckitFiles(root).map((p) => ({ path: p, sha256: fileSha(join(root, p)) })) : [],
     pilothify_out_existed: exists(root, 'pilothify-out'),
     created_dirs: [...createdDirs].sort((a, b) => b.length - a.length),
     operations: ops,
   };
+  // A reminder only: the repository's .gitignore is the team's business, fe-delivery never edits it
+  // beyond its own marked block.
+  const ignored = ignoredBy(root, [PROFILE, MANIFEST, '.claude/settings.json']);
+  manifest.warnings = Object.entries(ignored).map(([path, rule]) => (
+    `${path} is ignored by git (${rule}); it stays on this machine and does not reach teammates through the repository`
+  ));
   createdDirs = null;
   write(root, MANIFEST, `${JSON.stringify(manifest, null, 2)}\n`);
   return manifest;
@@ -283,9 +344,15 @@ export function planUninstall(root, manifest, opts = {}) {
   steps.push({ path: MANIFEST, action: 'delete', why: 'install record' });
   const optional = [];
   if (manifest.speckit_installed_by_setup) {
-    optional.push({ flag: '--speckit', commands: ['specify extension remove bug', 'specify integration uninstall claude'], why: 'Spec Kit was installed by fe-setup' });
+    const files = manifest.speckit_files || [];
+    const edited = files.filter((f) => exists(root, f.path) && fileSha(join(root, f.path)) !== f.sha256).map((f) => f.path);
+    optional.push({
+      flag: '--speckit',
+      commands: ['specify extension remove bug --force', 'specify integration uninstall claude', `delete the ${files.length - edited.length} unchanged files Spec Kit's setup created`],
+      why: `Spec Kit was installed by fe-setup${edited.length ? `; edited files are kept: ${edited.join(', ')}` : ''}`,
+    });
   }
-  return { steps, optional, untouched: ['src/ and every product file', 'specs/ (Spec Kit artifacts of past runs)', '.specify/memory/constitution.md', 'git worktrees and branches', 'commit history'] };
+  return { steps, optional, untouched: ['src/ and every product file', 'specs/ (Spec Kit artifacts of past runs)', '.specify/memory/constitution.md once the team has written it', 'git worktrees and branches', 'commit history'] };
 }
 
 export function applyUninstall(root, manifest, opts = {}) {
@@ -362,10 +429,35 @@ export function applyUninstall(root, manifest, opts = {}) {
   report.push('manifest: deleted');
 
   if (opts.speckit && manifest.speckit_installed_by_setup) {
-    for (const args of [['extension', 'remove', 'bug'], ['integration', 'uninstall', 'claude']]) {
-      const r = spawnSync('specify', args, { cwd: root, encoding: 'utf8' });
+    // Judge "unchanged since install" before Spec Kit's own commands rewrite its registry files.
+    const unchanged = [];
+    const edited = [];
+    for (const f of manifest.speckit_files || []) {
+      const abs = join(root, f.path);
+      if (!existsSync(abs)) continue;
+      (fileSha(abs) === f.sha256 ? unchanged : edited).push(f.path);
+    }
+    const beforeFiles = new Set(speckitFiles(root));
+    for (const args of [['extension', 'remove', 'bug', '--force'], ['integration', 'uninstall', 'claude']]) {
+      const r = spawnSync(specifyBin(), args, { cwd: root, encoding: 'utf8', input: '' });
       report.push(`specify ${args.join(' ')}: exit ${r.status}`);
     }
+    // Backups and other files Spec Kit's removal just wrote belong to this uninstall too.
+    const createdNow = speckitFiles(root).filter((p) => !beforeFiles.has(p));
+    let removed = 0;
+    for (const p of [...unchanged, ...createdNow]) {
+      if (existsSync(join(root, p))) {
+        rmSync(join(root, p));
+        removed += 1;
+      }
+    }
+    for (const d of ['.specify', '.claude/skills', '.claude/commands']) pruneEmptyDirs(root, d);
+    if (existsSync(join(root, '.claude')) && readdirSync(join(root, '.claude')).length === 0) rmSync(join(root, '.claude'), { recursive: true });
+    report.push(`Spec Kit files created by setup: ${removed} removed`);
+    if (edited.length) report.push(`Spec Kit files KEPT (edited after install): ${edited.join(', ')}`);
+    const recorded = new Set((manifest.speckit_files || []).map((f) => f.path));
+    const other = speckitFiles(root).filter((p) => !recorded.has(p));
+    if (other.length) report.push(`Spec Kit files KEPT (created after install, e.g. by runs): ${other.slice(0, 10).join(', ')}${other.length > 10 ? ', …' : ''}`);
   }
 
   // Safety net: nothing outside the manifest may have changed.
@@ -375,7 +467,7 @@ export function applyUninstall(root, manifest, opts = {}) {
     if (before.get(p) === code) continue;
     const ok = [...allowed].some((a) => p === a || (a.endsWith('/') && p.startsWith(a)))
       || p.startsWith('.fe-delivery/')
-      || (opts.speckit && (p.startsWith('.claude/skills/speckit-') || p.startsWith('.specify/')));
+      || (opts.speckit && (p.startsWith('.claude/skills/speckit-') || p.startsWith('.claude/commands/speckit') || p.startsWith('.specify/')));
     if (!ok) violations.push(p);
   }
   return { report, violations };

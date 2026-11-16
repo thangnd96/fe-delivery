@@ -22,14 +22,17 @@ export function loadProfile(root) {
 }
 
 // Returns null when cwd is not inside a git repository that has an fe-delivery profile.
+// A worktree with an active run keeps its context even if the profile file disappears:
+// the run's frozen profile (applyRunProfile in run.mjs) still applies.
 export function repoContext(cwd) {
   const root = toplevel(cwd || process.cwd());
   if (!root) return null;
   const { profile, errors } = loadProfile(root);
-  if (!profile && errors.length === 0) return null;
   const common = commonDir(root) || join(root, '.git');
   const key = repoKey(common);
-  return { root, key, profile, profileErrors: errors, activeRunId: getActiveRunId(key, root) };
+  const activeRunId = getActiveRunId(key, root);
+  if (!profile && errors.length === 0 && !activeRunId) return null;
+  return { root, key, profile, profileErrors: errors, activeRunId };
 }
 
 export function relToRoot(root, filePath) {

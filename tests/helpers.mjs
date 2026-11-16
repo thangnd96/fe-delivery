@@ -1,5 +1,5 @@
 import { execFileSync, spawnSync } from 'node:child_process';
-import { cpSync, mkdtempSync, realpathSync, writeFileSync, mkdirSync } from 'node:fs';
+import { cpSync, mkdtempSync, readFileSync, realpathSync, writeFileSync, mkdirSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { dirname, join, resolve } from 'node:path';
 import { fileURLToPath } from 'node:url';
@@ -71,6 +71,15 @@ export function write(sb, rel, text) {
   mkdirSync(dirname(file), { recursive: true });
   writeFileSync(file, text);
   return file;
+}
+
+// Rewrites the repository's profile (as a team would commit it) before a run starts.
+export function setProfile(sb, mutate) {
+  const file = join(sb.repo, '.fe-delivery', 'profile.json');
+  const profile = JSON.parse(readFileSync(file, 'utf8'));
+  mutate(profile);
+  writeFileSync(file, `${JSON.stringify(profile, null, 2)}\n`);
+  return profile;
 }
 
 export function editPre(sb, rel, extra = {}) {

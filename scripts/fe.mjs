@@ -10,16 +10,17 @@ import { gateMarker, GATE_IDS, maxTier, requiredGates, tierRank } from './lib/ga
 import { commonDir, head, toplevel } from './lib/git.mjs';
 import { riskCategories } from './lib/glob.mjs';
 import { blastRadius, graphPath, loadGraph } from './lib/graph.mjs';
-import { activeRunsFor, applyUninstall, install, MANIFEST, planUninstall, readManifest } from './lib/install.mjs';
+import { activeRunsFor, applyUninstall, ignoredBy, install, MANIFEST, planUninstall, readManifest } from './lib/install.mjs';
+import { atlassianReminder, atlassianV1InProject } from './lib/mcp.mjs';
 import { feCliPath, repoKey, zones } from './lib/paths.mjs';
 import { buildReport } from './lib/report.mjs';
-import { endConditions, gatesFor, loadRun } from './lib/run.mjs';
+import { applyRunProfile, endConditions, gatesFor, loadRun, stopAfter } from './lib/run.mjs';
 import { validateNamed } from './lib/schema.mjs';
 import { agentFiles, exists, readJson, writeJson } from './lib/state.mjs';
 import { trailer } from './lib/trailers.mjs';
 
 const HELP = `fe — fe-delivery CLI
-  run start --jira KEY[,KEY] [--figma URL]... [--intent feature|bug|refactor|chore|documentation]
+  run start --jira KEY[,KEY] [--figma URL]... [--intent feature|bug|refactor|chore|documentation] [--stop-after plan]
   run status [--json]
   run end
   intake save <file.json|->
@@ -57,7 +58,7 @@ function fail(msg, code = 1) {
 }
 
 function ctxOrFail() {
-  const ctx = repoContext(process.cwd());
+  const ctx = applyRunProfile(repoContext(process.cwd()));
   if (!ctx) fail('not inside a git repository with .fe-delivery/profile.json (run /fe-delivery:fe-setup)');
   if (!ctx.profile) fail(`invalid profile: ${ctx.profileErrors.join('; ')}`);
   return ctx;
@@ -105,12 +106,16 @@ function runStart(o) {
     jira_keys: keys,
     figma_urls: figma,
     intent: typeof o.intent === 'string' ? o.intent : 'feature',
+    stop_after: o['stop-after'] === 'plan' ? 'plan' : null,
     created_at: new Date().toISOString(),
   };
+  if (o['stop-after'] !== undefined && run.stop_after !== 'plan') fail('--stop-after accepts only "plan"');
   writeJson(a.run, run);
   console.log(`Run ${runId} created for ${keys.join(', ') || 'direct request'} in ${ctx.root}`);
+  const shadow = run.stop_after === 'plan' || ctx.profile.rollout?.mode === 'shadow';
+  if (shadow) console.log('Shadow run: it stops after planning (no product-source edits, no implementation skills).');
   console.log('Next: run the fe-intake subagent, then `fe intake save`, then `fe classify`.');
-  console.log(trailer('RUN_STARTED', { run_id: runId, worktree: ctx.root }));
+  console.log(trailer('RUN_STARTED', { run_id: runId, worktree: ctx.root, ...(run.stop_after ? { stop_after: run.stop_after } : {}) }));
 }
 
 function status(ctx, r) {
@@ -118,9 +123,14 @@ function status(ctx, r) {
   const c = r.classification;
   const diff = r.diff || { total_files: 0, total_loc: 0 };
   const remaining = endConditions(ctx, r);
+  const shadow = stopAfter(ctx, r);
   return {
     run_id: r.runId,
     hooks_registered: Boolean(r.state),
+    stop_after: shadow.value,
+    stop_after_source: shadow.source,
+    profile_frozen: Boolean(r.state?.profile),
+    profile_changed_on_disk: Boolean(ctx.profileChanged),
     jira_keys: r.run?.jira_keys || [],
     tier: c?.tier || null,
     tier_floor: c?.tier_floor || null,
@@ -379,6 +389,10 @@ function doctor() {
     }
     console.log(`  sandbox.enabled: ${settings.sandbox?.enabled === true ? 'yes' : 'no (hook-zone protection is weaker)'}`);
   }
+  const ignored = ignoredBy(ctx.root, ['.fe-delivery/profile.json', '.claude/settings.json', '.claude/skills/speckit-specify/SKILL.md']);
+  for (const [path, rule] of Object.entries(ignored)) console.log(`note: ${path} is gitignored (${rule}); it does not reach teammates through the repository`);
+  if (atlassianV1InProject(ctx.root)) console.log(`note: ${atlassianReminder().replace(/^Reminder: /, '')}`);
+  console.log(`rollout: ${ctx.profile?.rollout?.mode || 'full'}`);
   const g = loadGraph(ctx.root);
   console.log(`graph: ${g ? `built_at_commit ${g.built_at_commit} (HEAD ${head(ctx.root)})` : 'missing'}`);
   console.log(`active run: ${ctx.activeRunId || 'none'}`);
@@ -405,7 +419,10 @@ function installCmd(o) {
   if (errors.length) fail(`profile does not match profile.schema.json:\n- ${errors.join('\n- ')}`);
   let manifest;
   try {
-    manifest = install(root, { profileText: `${JSON.stringify(profile, null, 2)}\n`, speckitInstalledBySetup: o['speckit-installed-by-setup'] === true });
+    manifest = install(root, {
+      profileText: `${JSON.stringify(profile, null, 2)}\n`,
+      speckitInstalledBySetup: o['speckit-installed-by-setup'] === true,
+    });
   } catch (e) {
     fail(e.message);
   }
@@ -416,6 +433,8 @@ function installCmd(o) {
       console.log(`  kept your value at ${c.path.join('.')}: ${JSON.stringify(c.kept)} (fe-delivery suggests ${JSON.stringify(c.wanted)})`);
     }
   }
+  if (manifest.speckit_files.length) console.log(`Spec Kit footprint recorded: ${manifest.speckit_files.length} files (removed by \`fe uninstall --speckit\` while unchanged).`);
+  for (const w of manifest.warnings || []) console.log(`Note: ${w}`);
   console.log(`\nRecorded in ${MANIFEST}. Commit these files together; \`fe uninstall\` reverts exactly this footprint.`);
 }
 

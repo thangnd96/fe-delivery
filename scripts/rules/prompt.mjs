@@ -33,20 +33,27 @@ export function onUserPromptSubmit(input, ctx) {
     rmSync(markerFile, { force: true });
     return addContext('UserPromptSubmit', 'fe-delivery: [no-run] given; delivery workflow not required for this request.');
   }
-  if (parsed.jira_keys.length === 0 && parsed.figma_urls.length === 0) return null;
+  const planOnly = parsed.overrides['stop-after'] === 'plan';
+  if (parsed.jira_keys.length === 0 && parsed.figma_urls.length === 0 && !planOnly) return null;
   const previous = readJson(markerFile, { jira_keys: [], figma_urls: [] });
   writeJson(markerFile, {
     session_id: input.session_id || null,
     jira_keys: [...new Set([...previous.jira_keys, ...parsed.jira_keys])],
     figma_urls: [...new Set([...previous.figma_urls, ...parsed.figma_urls])],
+    // The latest delivery prompt decides whether the next run is a shadow run.
+    stop_after: planOnly ? 'plan' : null,
     at: new Date().toISOString(),
   });
+  const shadow = planOnly || ctx.profile.rollout?.mode === 'shadow';
   const lines = [
     'fe-delivery: this request references delivery sources, so it must go through the fe-deliver skill.',
     parsed.jira_keys.length ? `Jira: ${parsed.jira_keys.join(', ')}` : null,
     parsed.figma_urls.length ? `Figma: ${parsed.figma_urls.join(' ')}` : null,
     Object.keys(parsed.overrides).length ? `Overrides: ${JSON.stringify(parsed.overrides)}` : null,
-    `Edits and Spec Kit skills stay blocked until a run is started: node "${feCliPath()}" run start --jira <KEY> ...`,
+    shadow
+      ? `Shadow run (${planOnly ? '[stop-after:plan]' : 'profile rollout.mode = shadow'}): stop after planning — intake, classify, spec, plan, tasks, report. Hooks deny product-source edits and implementation skills.`
+      : null,
+    `Edits and Spec Kit skills stay blocked until a run is started: node "${feCliPath()}" run start --jira <KEY> ...${planOnly ? ' --stop-after plan' : ''}`,
     'If the user did not ask for implementation, answer normally; the user can add [no-run] to opt out.',
   ].filter(Boolean);
   return addContext('UserPromptSubmit', lines.join('\n'));

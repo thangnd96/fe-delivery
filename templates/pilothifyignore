@@ -16,3 +16,4 @@ src/assets/
 # Uncomment when generated API clients are very large and noisy:
 # src/**/__generated__/
 .claude/
+.specify/

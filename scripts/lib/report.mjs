@@ -1,5 +1,5 @@
 // Deterministic delivery report built from the run ledger (ARCHITECTURE §11).
-import { endConditions, gatesFor } from './run.mjs';
+import { endConditions, gatesFor, stopAfter } from './run.mjs';
 import { readEvents } from './state.mjs';
 
 function table(headers, rows) {
@@ -23,7 +23,11 @@ export function buildReport(ctx, r) {
   const out = [];
   out.push(`# Delivery report — ${r.runId}`);
   out.push('');
-  out.push(`**Status:** ${missing.length ? 'INCOMPLETE' : 'READY FOR REVIEW'}`);
+  const shadow = stopAfter(ctx, r);
+  const done = shadow.value === 'plan' ? 'PLANNED (shadow run, no product-source changes)' : 'READY FOR REVIEW';
+  out.push(`**Status:** ${missing.length ? 'INCOMPLETE' : done}`);
+  if (shadow.value === 'plan') out.push(`**Mode:** shadow — stops after planning (${shadow.source}).`);
+  if (ctx.profileChanged) out.push('**Note:** the profile on disk changed during the run; the run was held to the profile frozen at its start.');
   if (missing.length) out.push('', '**Missing:**', ...missing.map((m) => `- ${m}`));
   out.push('', '## Sources');
   out.push(`- Jira: ${(run.jira_keys || []).join(', ') || 'none'}`);

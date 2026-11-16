@@ -11,7 +11,7 @@ import { block } from '../lib/io.mjs';
 import { endConditions, initHookState, loadRun, refreshDiff } from '../lib/run.mjs';
 import { validate, loadSchema } from '../lib/schema.mjs';
 import {
-  agentFiles, appendEvent, clearActiveRun, exists, getActiveRunId, hookFiles, readJson, setActiveRun, writeJson,
+  agentFiles, appendEvent, clearActiveRun, exists, getActiveRunId, hookFiles, readJson, sessionMarkerFile, setActiveRun, writeJson,
 } from '../lib/state.mjs';
 import { bashStdout, isFeCliCommand, parseTrailers } from '../lib/trailers.mjs';
 import { EDIT_TOOLS } from './pre.mjs';
@@ -86,9 +86,16 @@ function handleTrailers(input, ctx) {
         feedback = block(`run ${current} is still active in this worktree; end it first (\`fe run end\`)`);
         continue;
       }
+      // A shadow run comes from the user's [stop-after:plan] (recorded by the prompt hook) or
+      // from the run start flag; the model can add this restriction but never remove it.
+      const fromPrompt = readJson(sessionMarkerFile(input.session_id))?.stop_after === 'plan';
+      const fromFlag = data.stop_after === 'plan';
       setActiveRun(ctx.key, ctx.root, data.run_id);
       ctx.activeRunId = data.run_id;
-      initHookState(ctx, data.run_id, input.session_id);
+      initHookState(ctx, data.run_id, input.session_id, {
+        stop_after: fromPrompt || fromFlag ? 'plan' : null,
+        stop_after_source: fromPrompt ? 'user prompt [stop-after:plan]' : fromFlag ? 'fe run start --stop-after plan' : null,
+      });
       appendEvent(ctx.key, data.run_id, { type: 'run-started' });
     } else if (kind === 'EVIDENCE') {
       const runId = ctx.activeRunId;
@@ -96,6 +103,10 @@ function handleTrailers(input, ctx) {
       const item = { ...data };
       delete item.run_id;
       const errors = validate(evidenceItemSchema, item);
+      const expected = ctx.profile?.checks?.[item.kind];
+      if (expected && item.command !== expected) {
+        errors.push(`command "${item.command}" is not the profile's ${item.kind} check "${expected}" (frozen at run start)`);
+      }
       if (errors.length) {
         appendEvent(ctx.key, runId, { type: 'evidence-rejected', errors });
         continue;

@@ -6,6 +6,7 @@ import { join } from 'node:path';
 import { loadGraph } from '../lib/graph.mjs';
 import { head } from '../lib/git.mjs';
 import { addContext } from '../lib/io.mjs';
+import { atlassianReminder, atlassianV1InProject } from '../lib/mcp.mjs';
 import { feCliPath, pluginRoot, zones } from '../lib/paths.mjs';
 import { loadRun } from '../lib/run.mjs';
 import { compare, satisfies } from '../lib/semver.mjs';
@@ -64,12 +65,17 @@ export function onSessionStart(input, ctx) {
     'Jira/Figma/implementation requests go through the fe-deliver skill; each run works in its own worktree.',
   ];
   if (ctx.profileErrors.length) lines.push(`Profile problems: ${ctx.profileErrors.join('; ')}`);
+  if (ctx.profile?.rollout?.mode === 'shadow') {
+    lines.push('Shadow mode (profile rollout.mode = shadow): delivery runs stop after planning — classify, spec, plan, tasks, report. No product-source edits, no speckit-implement.');
+  }
   const r = ctx.profile ? loadRun(ctx) : null;
   if (r) lines.push(`Active run in this worktree: ${r.runId} (tier ${r.classification?.tier || 'unclassified'}).`);
+  if (r && ctx.profileChanged) lines.push('The profile on disk changed after this run started; the run keeps the profile frozen at its start.');
   const cache = readJson(cacheFile());
   const stale = !cache || Date.now() - Date.parse(cache.at || 0) > CACHE_TTL_MS;
   if (stale && !process.env.FE_DELIVERY_NO_REFRESH) refreshInBackground();
   lines.push(...versionNotices(cache, ctx.profile, compat(), process.env.FE_DELIVERY_MAINTAINER === '1'));
+  if (atlassianV1InProject(ctx.root)) lines.push(atlassianReminder());
   const graph = existsSync(join(ctx.root, 'pilothify-out', 'graph.json')) ? loadGraphHeader(ctx.root) : null;
   if (!graph) lines.push(`No pilothify graph yet. Build it: node "${feCliPath()}" graph ensure`);
   else if (graph.built_at_commit && graph.built_at_commit !== head(ctx.root)) {

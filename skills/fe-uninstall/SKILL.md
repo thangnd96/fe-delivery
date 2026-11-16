@@ -19,7 +19,7 @@ Run `node "<plugin>/scripts/fe.mjs" uninstall --dry-run`, then show the user:
 - blockers:
   - **active runs:** finish them with `fe run end` first, or pass `--force-runs`. Worktrees are never deleted;
   - **uncommitted changes in recorded files:** commit or stash them first.
-- the optional `--speckit` step, offered only when fe-setup installed Spec Kit here. It runs `specify extension remove bug` and `specify integration uninstall claude`; Spec Kit keeps files you edited. Ask whether the team still wants Spec Kit.
+- the optional `--speckit` step, offered only when fe-setup installed Spec Kit here. It runs `specify extension remove bug --force` and `specify integration uninstall claude`, then deletes the files Spec Kit's setup created that are still unchanged (the manifest lists them). Files the team edited, such as the constitution, are kept and listed. Ask whether the team still wants Spec Kit.
 
 If there is no install manifest, the repository was set up without `fe install`. Do not guess. Show the manual list from the uninstall guide and remove only what the user confirms.
 

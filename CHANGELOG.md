@@ -1,5 +1,32 @@
 # Changelog
 
+## v0.3.0 — 2026-11-16
+
+Phần lớn thay đổi đến từ lần cài thử trên bản clone của ba repo front-end thật.
+
+- **Chế độ shadow được cưỡng chế (G7):**
+  - run shadow khi profile đặt `rollout.mode = "shadow"`, khi người dùng viết `[stop-after:plan]`, hoặc khi chạy `fe run start --stop-after plan`;
+  - hook chặn sửa mã nguồn sản phẩm và chặn `speckit-implement`, `speckit-converge`, `speckit-bug-fix`, `speckit-bug-test`;
+  - nếu mã nguồn bị đổi qua đường khác thì run không kết thúc được cho tới khi hoàn tác;
+  - report ghi trạng thái `PLANNED`.
+- **Cấu hình guard cố định theo run (G8):**
+  - mỗi run dùng bản profile chụp lúc bắt đầu;
+  - khi đang giao việc, không được sửa profile và manifest bằng Edit/Write hay Bash;
+  - xoá profile giữa run cũng không tắt được guard;
+  - evidence có lệnh khác với profile đã chụp bị từ chối.
+- **Sửa lỗi bằng chứng:** check fail trước đây vẫn được tính là bằng chứng, nên run có typecheck đỏ vẫn có thể ra report READY FOR REVIEW. Nay lần chạy mới nhất của mỗi check sau lần sửa cuối phải pass. Tương tự, kiểm tra UI L2 có kết quả `fail` thì run không kết thúc được.
+- **Gỡ `--speckit` sạch:**
+  - `fe install --speckit-installed-by-setup` ghi lại danh sách file Spec Kit đã tạo;
+  - `fe uninstall --speckit` xoá đúng các file đó nếu chưa bị sửa, và giữ file team đã sửa (ví dụ constitution);
+  - lệnh gỡ extension nay có `--force`, vì Spec Kit hỏi xác nhận và tự huỷ khi không có TTY.
+- **Chỉ nhắc, không can thiệp sâu:**
+  - `fe install` và `fe doctor` in một dòng nhắc khi profile, manifest hoặc `.claude/settings.json` bị repo gitignore; plugin không sửa `.gitignore` của consumer ngoài khối của chính nó;
+  - đầu phiên và `fe doctor` nhắc khi `.mcp.json` còn dùng endpoint Atlassian v1 đã bị deprecate; plugin không đổi cấu hình MCP.
+- **Không cố định Jira site:** profile mẫu bỏ `jira.site`; chỉ cần project key để nhận ra ticket trong prompt, và danh sách được để trống.
+- **`rollout.mode` do consumer chọn:** mặc định `full`; `shadow` là lựa chọn khi muốn thử mà không sửa code.
+- **`fe-setup`:** đề nghị chạy từng check trên checkout sạch và báo check nào đỏ (consumer tự quyết sửa, thu hẹp hay bỏ); hỏi `rollout.mode`; chỉ hỏi Jira project key; nhắc chứ không ép đổi kết nối Atlassian; ghi chú rằng baseline adherence đọc transcript trên chính máy của từng dev.
+- **Test:** 40 test unit (thêm 12) và 8 test contract đều pass.
+
 ## v0.2.0 — 2026-11-16
 
 - **Gỡ cài đặt sạch theo manifest:** `fe install` thay cho việc ghi file bằng tay trong `fe-setup`, và ghi từng thay đổi vào `.fe-delivery/install-manifest.json`:

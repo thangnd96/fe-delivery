@@ -7,6 +7,8 @@
 //   G4 diff budget of the tier.
 //   G5 Bash: no nested claude, no Spec Kit workflow engine, no bypass flag, no hook-zone access.
 //   G6 AskUserQuestion gate prompts must be well-formed and not pre-answered.
+//   G7 shadow runs (stop after planning): no product-source edits, no implementation skills.
+//   G8 guard configuration (profile, install manifest) cannot change during delivery work.
 //   SA subagent scoping: fe-intake / fe-reviewer are read-only; fe-verifier cannot edit.
 import { normalizeAgentType, relToRoot } from '../lib/context.mjs';
 import { budgetExceeded } from '../lib/diff.mjs';
@@ -14,11 +16,21 @@ import { GATE_MARKER_RE } from '../lib/gates.mjs';
 import { riskCategories } from '../lib/glob.mjs';
 import { denyTool } from '../lib/io.mjs';
 import { isArtifactPath, zones } from '../lib/paths.mjs';
-import { artifactExists, flagCategories, gatesFor, loadRun } from '../lib/run.mjs';
+import { artifactExists, flagCategories, gatesFor, loadRun, stopAfter } from '../lib/run.mjs';
 import { programOf, simpleCommands } from '../lib/shell.mjs';
 import { appendEvent, readJson, sessionMarkerFile } from '../lib/state.mjs';
 
 export const EDIT_TOOLS = new Set(['Edit', 'Write', 'MultiEdit', 'NotebookEdit']);
+const GUARD_CONFIG = new Set(['.fe-delivery/profile.json', '.fe-delivery/install-manifest.json']);
+const GUARD_CONFIG_RE = /\.fe-delivery(?![\w-])/;
+const IMPLEMENT_SKILLS = new Set(['speckit-implement', 'speckit-converge', 'speckit-bug-fix', 'speckit-bug-test']);
+const G8_REASON = 'the fe-delivery profile and install manifest are guard configuration and cannot change during delivery work; change them by hand outside a run';
+const G8_BASH_REASON = 'Bash may not touch .fe-delivery paths during delivery work, except to read them (guard configuration and run state); use the fe CLI, and change the profile by hand outside a run';
+
+// Heredoc bodies are data (for example intake JSON piped to `fe intake save -`), not commands.
+export function stripHeredocs(command) {
+  return String(command || '').replace(/<<-?\s*(['"]?)([A-Za-z_]\w*)\1[^\n]*\n[\s\S]*?\n\s*\2[ \t]*(?=\n|$)/g, '<<heredoc');
+}
 const READ_ONLY_AGENTS = new Set(['fe-intake', 'fe-reviewer']);
 const NO_EDIT_AGENTS = new Set(['fe-intake', 'fe-reviewer', 'fe-verifier']);
 const READ_ONLY_PROGRAMS = new Set(['ls', 'cat', 'head', 'tail', 'wc', 'grep', 'rg', 'find', 'pwd', 'echo', 'sort', 'uniq', 'jq']);
@@ -175,9 +187,15 @@ export function onPreToolUse(input, ctx) {
   const r = ctx.activeRunId ? loadRun(ctx) : null;
   const runId = r?.runId || null;
 
+  // Delivery work: an active run, or a prompt in this session that referenced Jira/Figma.
+  const delivering = () => Boolean(r) || Boolean(readJson(sessionMarkerFile(input.session_id)));
+
   if (tool === 'Bash') {
     const v = bashViolation(ti.command);
     if (v) return deny(ctx, runId, 'G5', v);
+    if (GUARD_CONFIG_RE.test(stripHeredocs(ti.command)) && !readOnlyBashAllowed(ti.command) && delivering()) {
+      return deny(ctx, runId, 'G8', G8_BASH_REASON);
+    }
     if (READ_ONLY_AGENTS.has(agent) && !readOnlyBashAllowed(ti.command)) {
       return deny(ctx, runId, 'SA', `${agent} is read-only; allowed: pilothify query/explain/path/affected/god-nodes, read-only git and file viewing`);
     }
@@ -188,10 +206,15 @@ export function onPreToolUse(input, ctx) {
     if (NO_EDIT_AGENTS.has(agent)) return deny(ctx, runId, 'SA', `${agent} may not edit files`);
     const rel = relToRoot(ctx.root, editTarget(input));
     if (!rel) return null;
+    if (GUARD_CONFIG.has(rel) && delivering()) return deny(ctx, runId, 'G8', G8_REASON);
     if (!r) {
       const marker = readJson(sessionMarkerFile(input.session_id));
       if (marker) return deny(ctx, null, 'G0', 'start a delivery run first (fe-deliver skill → `fe run start`)');
       return null;
+    }
+    const shadow = stopAfter(ctx, r);
+    if (shadow.value === 'plan' && !isArtifactPath(rel)) {
+      return deny(ctx, runId, 'G7', `this run stops after planning (${shadow.source}), so product source such as ${rel} may not change; write the plan and report instead`);
     }
     const v = editViolation(ctx, r, rel);
     return v ? deny(ctx, runId, v.rule, v.reason) : null;
@@ -204,6 +227,10 @@ export function onPreToolUse(input, ctx) {
       const marker = readJson(sessionMarkerFile(input.session_id));
       if (marker) return deny(ctx, null, 'G0', 'start a delivery run first (fe-deliver skill → `fe run start`)');
       return null;
+    }
+    const shadow = stopAfter(ctx, r);
+    if (shadow.value === 'plan' && IMPLEMENT_SKILLS.has(skill)) {
+      return deny(ctx, runId, 'G7', `${skill}: this run stops after planning (${shadow.source}); report the plan instead of implementing`);
     }
     const v = skillViolation(ctx, r, skill);
     return v ? deny(ctx, runId, 'G1', `${skill}: ${v}`) : null;

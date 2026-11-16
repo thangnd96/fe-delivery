@@ -5,6 +5,7 @@
 import { execFileSync } from 'node:child_process';
 import { repoContext } from './lib/context.mjs';
 import { denyTool, emit, readHookInput } from './lib/io.mjs';
+import { applyRunProfile } from './lib/run.mjs';
 import { writeJson } from './lib/state.mjs';
 import { onPostToolUse } from './rules/post.mjs';
 import { onPreToolUse } from './rules/pre.mjs';
@@ -55,7 +56,7 @@ function main() {
   const input = readHookInput();
   let ctx = null;
   try {
-    ctx = repoContext(input.cwd || process.cwd());
+    ctx = applyRunProfile(repoContext(input.cwd || process.cwd()));
     const out = handler(input, ctx);
     if (out) emit(out);
   } catch (err) {

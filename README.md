@@ -39,11 +39,13 @@ Script dùng Node.js ≥ 18 và không có dependency nào. Máy dev FE luôn c�
 | G4 | PreToolUse | Vượt ngân sách diff của tier → phải phân loại lại. |
 | G5 | PreToolUse | Chặn `claude` lồng nhau, `specify workflow run/resume`, cờ `--dangerously-skip-permissions`, và mọi truy cập hook zone. |
 | G6 | PreToolUse | Câu hỏi gate phải đúng hai lựa chọn Approve/Reject và không được điền sẵn câu trả lời. |
+| G7 | PreToolUse | Run shadow (dừng sau bước lập plan) không được sửa mã nguồn sản phẩm và không được gọi `speckit-implement`, `speckit-converge`, `speckit-bug-fix`, `speckit-bug-test`. Run là shadow khi profile đặt `rollout.mode = "shadow"`, khi người dùng viết `[stop-after:plan]`, hoặc khi chạy `fe run start --stop-after plan`. Nếu mã nguồn bị đổi qua đường khác (ví dụ Bash) thì run không kết thúc được cho tới khi hoàn tác. |
+| G8 | PreToolUse | Khi đang giao việc, không được sửa `.fe-delivery/profile.json` và install manifest, bằng Edit/Write hay bằng Bash. Run luôn dùng bản profile chụp lúc bắt đầu, nên sửa hoặc xoá file giữa chừng cũng không nới được luật. |
 | SA | PreToolUse | `fe-intake`/`fe-reviewer` chỉ đọc; `fe-verifier` không sửa file; subagent không được gọi MCP ghi. |
 | P1 | PostToolUse | Ghi approval từ câu trả lời của người. Chỉ đúng chữ "Approve" mới được tính. |
 | P2 | PostToolUse | Tính lại diff từ git; `last_edit_at` chỉ đổi khi nội dung file đổi. |
-| P3 | PostToolUse | Chỉ tin trailer `FE_*` khi lệnh là một lệnh `fe` trần (không nối lệnh): bắt đầu run, ghi evidence, kết thúc run. |
-| T1 | Stop | Run có thay đổi mà thiếu điều kiện → chặn một lần cho mỗi lượt sửa. |
+| P3 | PostToolUse | Chỉ tin trailer `FE_*` khi lệnh là một lệnh `fe` trần (không nối lệnh): bắt đầu run, ghi evidence, kết thúc run. Evidence chỉ được nhận khi lệnh check trùng với lệnh trong profile chụp lúc bắt đầu run. |
+| T1 | Stop | Run có thay đổi mà thiếu điều kiện → chặn một lần cho mỗi lượt sửa. Mỗi check phải có lần chạy **pass** sau lần sửa cuối; check fail cũng được ghi lại, nhưng ghi lại là bằng chứng của việc fail. |
 
 ## State nằm ngoài repo
 
@@ -63,13 +65,20 @@ Plugin được phát hành qua `piloth-marketplace`:
 
 Sau đó mở repo FE và chạy `/fe-delivery:fe-setup`. pilothify chỉ cài từ GitHub và phải pin tag (xem `compat/speckit.json`).
 
+- **Chế độ chạy:** `rollout.mode` mặc định là `full`. Đặt `shadow` nếu muốn thử: mọi run chỉ phân loại và lập plan, không sửa code. Mỗi team tự chọn.
+- **Jira:** profile chỉ cần project key để nhận ra ticket trong prompt. Không cần cấu hình Jira site; plugin dùng kết nối Atlassian mà máy đang có.
+- **Chỉ nhắc, không can thiệp:** `fe install`, `fe doctor` và đầu phiên chỉ in một dòng nhắc khi cần, và không sửa cấu hình của consumer. Hai trường hợp nhắc là:
+  - file của fe-delivery bị repo gitignore, nên không đến được đồng đội;
+  - `.mcp.json` còn dùng endpoint Atlassian v1 đã bị deprecate.
+
 ## Gỡ cài đặt
 
 `fe install`, do `fe-setup` gọi, ghi mọi thay đổi trong repo vào `.fe-delivery/install-manifest.json`. `fe uninstall` chỉ đảo ngược đúng những gì có trong manifest:
 
 - **File chưa bị sửa sau khi cài:** khôi phục y nguyên từng byte.
 - **File đã bị sửa:** chỉ gỡ entry hoặc khối do fe-delivery thêm, phần của team giữ nguyên.
-- **Không bao giờ đụng tới:** `src/`, `specs/`, constitution của Spec Kit, worktree, branch, lịch sử commit.
+- **Không bao giờ đụng tới:** `src/`, `specs/`, constitution của Spec Kit mà team đã viết, worktree, branch, lịch sử commit.
+- **`--speckit`** (chỉ khi `fe-setup` đã cài Spec Kit): chạy lệnh gỡ của Spec Kit, rồi xoá đúng các file mà `specify init` đã tạo và chưa bị sửa. Danh sách file này được ghi vào manifest lúc cài.
 - **Safety check:** cuối lệnh, mọi path đã đổi được đối chiếu với manifest. Có path ngoài manifest thì lệnh thoát mã 2.
 
 ```text

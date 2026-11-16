@@ -2,7 +2,6 @@
   "version": 1,
   "project": { "name": "example-fe-app", "package_manager": "pnpm", "monorepo": false },
   "jira": {
-    "site": "https://example.atlassian.net",
     "project_keys": ["PROJ"],
     "branch_template": "feature/{jira_key}-{slug}"
   },
@@ -39,6 +38,7 @@
     "content_patterns": ["dangerouslySetInnerHTML", "window.location"],
     "blast_radius": { "source": "pilothify", "edges": "EXTRACTED", "depth": 2, "affected_threshold": 15, "cross_package": true }
   },
+  "rollout": { "mode": "full" },
   "versions": { "speckit": "1.4.0", "pilothify": "0.1.5" },
   "data": { "commit_intake_summary": true }
 }

@@ -180,3 +180,66 @@ test('a repository with no settings, CLAUDE.md or .gitignore returns to that sta
   assert.ok(!existsSync(join(c.repo, '.claude')), 'directory created by install is removed');
   assert.ok(!existsSync(join(c.repo, '.fe-delivery')));
 });
+
+// v0.3.0 — found by the pilot dry run on real repositories.
+test('--speckit removes exactly the unchanged files Spec Kit setup created, keeps edited ones and backups go too', () => {
+  const c = consumerRepo();
+  const before = snapshot(c.repo);
+  // What `specify init` + `specify extension add bug` leave behind, before `fe install`.
+  const sk = {
+    '.specify/scripts/bash/common.sh': '#!/bin/bash\n',
+    '.specify/templates/plan-template.md': '# Plan\n',
+    '.specify/memory/constitution.md': '# [PROJECT] Constitution\n',
+    '.specify/extensions/bug/extension.yml': 'id: bug\n',
+    '.claude/skills/speckit-plan/SKILL.md': '---\nname: speckit-plan\n---\n',
+  };
+  for (const [p, text] of Object.entries(sk)) {
+    mkdirSync(join(c.repo, p, '..'), { recursive: true });
+    writeFileSync(join(c.repo, p), text);
+  }
+  const stub = join(c.base, 'specify-stub.sh');
+  writeFileSync(stub, '#!/bin/sh\n# like `specify extension remove`: rewrites its registry and writes a backup\nmkdir -p .specify/extensions/.backup && echo saved > .specify/extensions/.backup/bug.yml\necho changed > .specify/extensions/bug/extension.yml\n', { mode: 0o755 });
+  const inst = c.fe(['install', '--profile', '-', '--speckit-installed-by-setup'], PROFILE);
+  assert.equal(inst.status, 0, inst.stderr);
+  assert.match(inst.stdout, /Spec Kit footprint recorded: 5 files/);
+  // The team writes its constitution (fe-setup step 5) and commits the setup.
+  writeFileSync(join(c.repo, '.specify/memory/constitution.md'), '# Team constitution\n');
+  commitAll(c, 'set up fe-delivery');
+  const dry = c.fe(['uninstall', '--dry-run']);
+  assert.match(dry.stdout, /delete the 4 unchanged files/);
+  assert.match(dry.stdout, /edited files are kept: \.specify\/memory\/constitution\.md/);
+  const un = spawnSync(process.execPath, [FE, 'uninstall', '--speckit'], { cwd: c.repo, env: { ...c.env, FE_DELIVERY_SPECIFY_BIN: stub }, encoding: 'utf8' });
+  assert.equal(un.status, 0, un.stdout + un.stderr);
+  assert.match(un.stdout, /Spec Kit files created by setup: 5 removed/, 'four unchanged files plus the backup');
+  assert.match(un.stdout, /KEPT \(edited after install\): \.specify\/memory\/constitution\.md/);
+  const after = snapshot(c.repo);
+  assert.equal(after['.specify/memory/constitution.md'] !== undefined, true);
+  delete after['.specify/memory/constitution.md'];
+  assert.deepEqual(after, before, 'everything else is back to the pre-install state');
+});
+
+test('reminders only: an ignored .claude/ and an Atlassian v1 endpoint are pointed out, never changed', () => {
+  const c = consumerRepo();
+  writeFileSync(join(c.repo, '.gitignore'), 'node_modules/\n.claude/\n');
+  writeFileSync(join(c.repo, '.mcp.json'), JSON.stringify({ mcpServers: { atlassian: { type: 'sse', url: 'https://mcp.atlassian.com/v1/sse' } } }, null, 2));
+  commitAll(c, 'team ignores .claude/ and still uses Atlassian v1');
+  const before = snapshot(c.repo);
+  const gitignoreBefore = readFileSync(join(c.repo, '.gitignore'), 'utf8');
+  const mcpBefore = readFileSync(join(c.repo, '.mcp.json'), 'utf8');
+  const inst = c.fe(['install', '--profile', '-'], PROFILE);
+  assert.equal(inst.status, 0, inst.stderr);
+  assert.match(inst.stdout, /Note: \.claude\/settings\.json is ignored by git \(\.gitignore:2:\.claude\/\)/);
+  assert.ok(readFileSync(join(c.repo, '.gitignore'), 'utf8').startsWith(gitignoreBefore), 'only the marked block is appended');
+  assert.doesNotMatch(readFileSync(join(c.repo, '.gitignore'), 'utf8'), /!\.claude/, 'the team .claude/ rule is left alone');
+  assert.equal(readFileSync(join(c.repo, '.mcp.json'), 'utf8'), mcpBefore, 'MCP configuration is never changed');
+  const doctor = c.fe(['doctor']);
+  assert.match(doctor.stdout, /deprecated v1 endpoint/);
+  assert.match(doctor.stdout, /settings\.json is gitignored/);
+  const session = spawnSync(process.execPath, [join(PLUGIN_ROOT, 'scripts', 'hook.mjs'), 'session-start'], {
+    cwd: c.repo, env: { ...c.env, FE_DELIVERY_NO_REFRESH: '1' }, input: JSON.stringify({ cwd: c.repo, session_id: 's' }), encoding: 'utf8',
+  });
+  assert.match(session.stdout, /mcp\.atlassian\.com\/v2\/mcp/);
+  commitAll(c, 'set up fe-delivery');
+  assert.equal(c.fe(['uninstall']).status, 0);
+  assert.deepEqual(snapshot(c.repo), before);
+});

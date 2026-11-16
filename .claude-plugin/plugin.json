@@ -1,6 +1,6 @@
 {
   "name": "fe-delivery",
-  "version": "0.2.0",
+  "version": "0.3.0",
   "description": "Governed front-end delivery for Claude Code: Jira/Figma intake, two-axis classification, Spec Kit tiers, harness-enforced gates and evidence, pilothify knowledge graph.",
   "author": {
     "name": "ThangND4"

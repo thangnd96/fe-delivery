@@ -85,6 +85,14 @@
         }
       }
     },
+    "rollout": {
+      "type": "object",
+      "description": "Rollout ring. shadow: every run stops after planning (classify, spec, plan, tasks, report) and hooks deny product-source edits and implementation skills. full: implementation enabled. Absent means full.",
+      "required": ["mode"],
+      "properties": {
+        "mode": { "enum": ["shadow", "full"] }
+      }
+    },
     "versions": {
       "type": "object",
       "properties": {
