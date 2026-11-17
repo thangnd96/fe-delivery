@@ -83,7 +83,7 @@ function handleTrailers(input, ctx) {
       const current = getActiveRunId(ctx.key, ctx.root);
       if (current && current !== data.run_id) {
         appendEvent(ctx.key, current, { type: 'run-start-refused', other: data.run_id });
-        feedback = block(`run ${current} is still active in this worktree; end it first (\`fe run end\`)`);
+        feedback = block(`run ${current} is still active in this checkout; end it first (\`fe run end\`)`);
         continue;
       }
       // A shadow run comes from the user's [stop-after:plan] (recorded by the prompt hook) or

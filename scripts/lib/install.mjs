@@ -182,6 +182,22 @@ function markers(rel) {
     : ['# fe-delivery:begin', '# fe-delivery:end'];
 }
 
+// fe-delivery 0.3.0 and earlier wrote this line into the CLAUDE.md block. Runs now work in the
+// current checkout, so repositories that still carry it get a notice; the plugin never edits it.
+const LEGACY_WORKTREE_LINE = 'Delivery runs work in a git worktree: create one with EnterWorktree for each run.';
+
+export function legacyWorktreeLine(root) {
+  try {
+    return read(root, 'CLAUDE.md').includes(LEGACY_WORKTREE_LINE);
+  } catch {
+    return false;
+  }
+}
+
+export function legacyWorktreeNotice() {
+  return 'CLAUDE.md still says delivery runs work in a git worktree (a line fe-delivery 0.3.0 and earlier wrote). It no longer applies: work in the current checkout and make a worktree only when the user asks for one. Offer to replace that line with the current one from the plugin\'s templates/claude-md-block.md; fe-delivery does not edit CLAUDE.md.';
+}
+
 function appendBlock(root, rel, content, ops, skipIfIncludes = null) {
   const existed = exists(root, rel);
   const before = existed ? read(root, rel) : '';

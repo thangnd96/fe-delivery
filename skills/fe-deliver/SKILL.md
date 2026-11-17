@@ -12,8 +12,17 @@ You run the delivery workflow in this session. Deterministic hooks enforce the r
 ## 0. Is this delivery work?
 If the user only asks a question, answer it and stop. Otherwise continue.
 
-## 1. Isolate
-Create a worktree for the task with the **EnterWorktree** tool. Project instructions authorise worktrees for delivery runs. Name it `<JIRA-KEY>-<short-slug>`, or `<slug>` for a direct request. Then rename the branch to the profile's `jira.branch_template`, for example: `git branch -m feature/PROJ-123-profile-card`.
+## 1. Workspace and branch
+Work in the current checkout, so the user sees every changed file in their own editor. Do not create a worktree unless:
+- the user, or the project's instructions, ask for one for this task; or
+- the session already runs inside a worktree (made by the user, or by their IDE or app such as Orca or Paseo). Stay in it and do not nest another one. Inside a worktree, `git rev-parse --git-dir` differs from `git rev-parse --git-common-dir`.
+
+When a worktree is wanted, make it the way the user's tooling does: through their app (its CLI or skill) when it manages worktrees, so the worktree shows up there; otherwise with the **EnterWorktree** tool. Name it `<JIRA-KEY>-<short-slug>`, or `<slug>` for a direct request.
+
+Then put the task on its own branch, named from the profile's `jira.branch_template` (for example `feature/PROJ-123-profile-card`):
+- On the default branch or an integration branch: `git switch -c <name>`.
+- Already on this task's branch: keep it.
+- On another task's branch, or with uncommitted changes that are not part of this task: ask the user first. Never stash, reset, discard or commit their changes yourself.
 
 ## 2. Start the run
 `fe run start --jira PROJ-123 [--figma <url>] --intent feature|bug|refactor|chore|documentation [--stop-after plan]`

@@ -32,7 +32,7 @@ export function buildReport(ctx, r) {
   out.push('', '## Sources');
   out.push(`- Jira: ${(run.jira_keys || []).join(', ') || 'none'}`);
   out.push(`- Figma: ${(run.figma_urls || []).join(' ') || 'none'}`);
-  out.push(`- Worktree: \`${run.worktree || ctx.root}\` · branch \`${run.branch || '?'}\` · base \`${(r.state?.base_sha || '').slice(0, 12)}\``);
+  out.push(`- Checkout:\`${run.worktree || ctx.root}\` · branch \`${run.branch || '?'}\` · base \`${(r.state?.base_sha || '').slice(0, 12)}\``);
   out.push('', '## Classification');
   if (c) {
     out.push(`- Task type: ${c.task_type}; tier **${c.tier}** (model ${c.model_tier || '?'}, floor ${c.tier_floor})`);

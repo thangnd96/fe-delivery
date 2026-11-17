@@ -10,7 +10,9 @@ import { gateMarker, GATE_IDS, maxTier, requiredGates, tierRank } from './lib/ga
 import { commonDir, head, toplevel } from './lib/git.mjs';
 import { riskCategories } from './lib/glob.mjs';
 import { blastRadius, graphPath, loadGraph } from './lib/graph.mjs';
-import { activeRunsFor, applyUninstall, ignoredBy, install, MANIFEST, planUninstall, readManifest } from './lib/install.mjs';
+import {
+  activeRunsFor, applyUninstall, ignoredBy, install, legacyWorktreeLine, legacyWorktreeNotice, MANIFEST, planUninstall, readManifest,
+} from './lib/install.mjs';
 import { atlassianReminder, atlassianV1InProject } from './lib/mcp.mjs';
 import { feCliPath, repoKey, zones } from './lib/paths.mjs';
 import { buildReport } from './lib/report.mjs';
@@ -65,7 +67,7 @@ function ctxOrFail() {
 }
 
 function runOrFail(ctx) {
-  if (!ctx.activeRunId) fail('no active run in this worktree (fe run start ...). If you just started one, the fe-delivery hooks may not be loaded.');
+  if (!ctx.activeRunId) fail('no active run in this checkout (fe run start ...). If you just started one, the fe-delivery hooks may not be loaded.');
   return loadRun(ctx);
 }
 
@@ -392,6 +394,7 @@ function doctor() {
   const ignored = ignoredBy(ctx.root, ['.fe-delivery/profile.json', '.claude/settings.json', '.claude/skills/speckit-specify/SKILL.md']);
   for (const [path, rule] of Object.entries(ignored)) console.log(`note: ${path} is gitignored (${rule}); it does not reach teammates through the repository`);
   if (atlassianV1InProject(ctx.root)) console.log(`note: ${atlassianReminder().replace(/^Reminder: /, '')}`);
+  if (legacyWorktreeLine(ctx.root)) console.log(`note: ${legacyWorktreeNotice()}`);
   console.log(`rollout: ${ctx.profile?.rollout?.mode || 'full'}`);
   const g = loadGraph(ctx.root);
   console.log(`graph: ${g ? `built_at_commit ${g.built_at_commit} (HEAD ${head(ctx.root)})` : 'missing'}`);

@@ -1,5 +1,15 @@
 # Changelog
 
+## v0.3.1 — 2026-11-17
+
+- **Làm thẳng trên checkout hiện tại, không ép tách worktree:**
+  - `fe-deliver` (bước 1) và `speckit-upgrade` làm ngay trên checkout đang mở, trên nhánh đặt theo `jira.branch_template` (`git switch -c` khi đang ở nhánh mặc định hay nhánh tích hợp), nên dev thấy file thay đổi ngay trong editor của mình;
+  - chỉ tạo worktree khi người dùng (hoặc chỉ dẫn của project) yêu cầu; nếu IDE hay app của họ quản lý worktree (Orca, Paseo, …) thì tạo qua app đó; phiên đã chạy sẵn trong một worktree thì ở lại đó, không lồng thêm;
+  - đang ở nhánh của việc khác, hoặc có thay đổi chưa commit không thuộc việc này, thì hỏi trước; không tự stash, reset, bỏ hay commit thay đổi của dev;
+  - khối `CLAUDE.md` mẫu và ngữ cảnh đầu phiên đổi theo; thông báo của CLI, hook và report nói "checkout" thay cho "worktree" (trường `worktree` trong state và trailer `FE_RUN_STARTED` giữ nguyên tên để tương thích).
+- **Repo đã cài bản 0.3.0 trở về trước:** đầu phiên và `fe doctor` nhắc khi `CLAUDE.md` còn dòng "Delivery runs work in a git worktree…", vì dòng đó không còn áp dụng. Plugin không tự sửa `CLAUDE.md`; `fe uninstall` vẫn gỡ được khối đã sửa tay (theo marker).
+- **Test:** 43 test unit (thêm 3, `workspace.test.mjs`) và 8 test contract đều pass.
+
 ## v0.3.0 — 2026-11-16
 
 Phần lớn thay đổi đến từ lần cài thử trên bản clone của ba repo front-end thật.

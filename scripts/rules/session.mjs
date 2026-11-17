@@ -5,6 +5,7 @@ import { closeSync, existsSync, openSync, readSync, statSync } from 'node:fs';
 import { join } from 'node:path';
 import { loadGraph } from '../lib/graph.mjs';
 import { head } from '../lib/git.mjs';
+import { legacyWorktreeLine, legacyWorktreeNotice } from '../lib/install.mjs';
 import { addContext } from '../lib/io.mjs';
 import { atlassianReminder, atlassianV1InProject } from '../lib/mcp.mjs';
 import { feCliPath, pluginRoot, zones } from '../lib/paths.mjs';
@@ -62,14 +63,15 @@ export function onSessionStart(input, ctx) {
   if (!ctx) return null;
   const lines = [
     `fe-delivery is enabled in this repository. CLI: node "${feCliPath()}" <command> (run \`help\` for the list).`,
-    'Jira/Figma/implementation requests go through the fe-deliver skill; each run works in its own worktree.',
+    'Jira/Figma/implementation requests go through the fe-deliver skill; runs work in the current checkout, and a worktree is made only when the user asks for one.',
   ];
+  if (legacyWorktreeLine(ctx.root)) lines.push(legacyWorktreeNotice());
   if (ctx.profileErrors.length) lines.push(`Profile problems: ${ctx.profileErrors.join('; ')}`);
   if (ctx.profile?.rollout?.mode === 'shadow') {
     lines.push('Shadow mode (profile rollout.mode = shadow): delivery runs stop after planning — classify, spec, plan, tasks, report. No product-source edits, no speckit-implement.');
   }
   const r = ctx.profile ? loadRun(ctx) : null;
-  if (r) lines.push(`Active run in this worktree: ${r.runId} (tier ${r.classification?.tier || 'unclassified'}).`);
+  if (r) lines.push(`Active run in this checkout: ${r.runId} (tier ${r.classification?.tier || 'unclassified'}).`);
   if (r && ctx.profileChanged) lines.push('The profile on disk changed after this run started; the run keeps the profile frozen at its start.');
   const cache = readJson(cacheFile());
   const stale = !cache || Date.now() - Date.parse(cache.at || 0) > CACHE_TTL_MS;

@@ -23,7 +23,7 @@ Prepare this repository for fe-delivery. Inspect first, then show a plan and wai
   - Otherwise use the documented init. Explain what it touches; no `--force` unless the user approves.
   - Note whether **this setup** installed Spec Kit into the repository. You pass that to `fe install` below.
 - **Bug extension:** `specify extension add bug`.
-- **Do not install the Spec Kit `git` extension.** Its mandatory `before_specify` hook creates `{number}-{slug}` branches, while fe-delivery owns worktrees and branch names. If it is already installed, tell the user and propose `specify extension remove git`.
+- **Do not install the Spec Kit `git` extension.** Its mandatory `before_specify` hook creates `{number}-{slug}` branches, while fe-delivery names branches from `jira.branch_template`. If it is already installed, tell the user and propose `specify extension remove git`.
 - **pilothify,** from GitHub only, pinned: `uv tool install "pilothify[leiden,mcp,sql] @ git+https://github.com/thangnd96/pilothify@v0.1.5"`. Never `pip install pilothify`, never `pilothify install`, and do not install pilothify git hooks: `fe graph ensure` keeps the graph fresh.
 
 ## 3. Profile

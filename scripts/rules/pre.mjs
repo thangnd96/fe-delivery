@@ -1,6 +1,6 @@
 // PreToolUse guard. Rules:
 //   G0 router: a session whose prompt referenced Jira/Figma may not edit or run Spec Kit
-//      skills until a delivery run is active in this worktree.
+//      skills until a delivery run is active in this checkout.
 //   G1 Spec Kit skill ordering, derived from artifacts on disk and recorded approvals.
 //   G2 human gates before product-source edits.
 //   G3 risk paths must be flagged in the classification.
