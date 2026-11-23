@@ -1,5 +1,13 @@
 # Changelog
 
+## v0.4.2 — 2026-11-23
+
+Repo cài mới nhận Spec Kit 1.4.3. Repo đang dùng nâng thẳng từ 1.4.0 lên 1.4.3 bằng `/fe-delivery:speckit-upgrade`.
+
+- **Spec Kit 1.4.3** (PR #2, từ workflow `speckit-update`): `speckit.tested` 1.4.3, range `>=1.4.3 <1.5.0`, cài `specify-cli==1.4.3`; template profile ghi `versions.speckit` 1.4.3. Bản 1.4.3 chủ yếu sửa lỗi. Phần chạm tới fe-delivery: `specify init` hay `integration upgrade` lỗi giữa chừng thì được rollback (#5402), skill sinh ra có `argument-hint` (#5449), và skill của extension được chép kèm resource khai báo (#5383).
+- **Thông báo đầu phiên:** repo pin bản cũ hơn 1.4.3 được nhắc chạy `/fe-delivery:speckit-upgrade`; nếu CLI `specify` trên máy chưa lên 1.4.3 thì có thêm dòng báo nằm ngoài range. Đây chỉ là thông báo, không lệnh nào bị chặn.
+- **Test:** contract 10/10 với Spec Kit 1.4.3 và pilothify 0.1.7; 69 test unit.
+
 ## v0.4.1 — 2026-11-23
 
 Repo cài mới nhận pilothify 0.1.7 và Spec Kit 1.4.2.

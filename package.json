@@ -1,6 +1,6 @@
 {
   "name": "fe-delivery",
-  "version": "0.4.1",
+  "version": "0.4.2",
   "private": true,
   "description": "Claude Code plugin: governed front-end delivery (scripts have no dependencies).",
   "type": "module",
