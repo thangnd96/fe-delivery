@@ -1,5 +1,61 @@
 # Changelog
 
+## v0.4.3 — 2026-11-23
+
+Dấu độ mới của graph nay giống nhau dù tính trong hay ngoài sandbox của Claude Code.
+
+- **Fingerprint khớp trong và ngoài sandbox.**
+  - Sandbox chặn đọc `.env`, `.env.*`, `*.pem` và `*.key`. Vì vậy trong sandbox, `git diff HEAD` báo các file này là đã xoá (`D .env.dev`), còn `git status` bỏ qua chúng. Ngoài sandbox, git thấy chúng bình thường.
+  - Hậu quả là cùng một cây làm việc có hai fingerprint. Trên portal, `fe doctor` và `fe graph status` chạy trong sandbox báo graph lệch dù cây sạch và HEAD trùng với dấu.
+  - Hai hậu quả khác suy ra từ code, chưa quan sát thật:
+    - G10 có thể báo lệch sai. Ở mức `block`, fe-reviewer sẽ bị chặn.
+    - Refresh nền và các điểm kiểm có thể refresh qua lại, làm report đếm sai số lần refresh.
+- **Fingerprint nay bỏ qua hai loại path:**
+  - `.env`, `.env.*`, `*.pem` và `*.key` ở mọi cấp thư mục (`SECRET_GLOBS`).
+    - Một test kiểm rằng mọi luật `Read(...)` bị cấm trong `templates/settings.example.json` đều có trong `SECRET_GLOBS`.
+    - Template vẫn cho đọc `.env.example`, nhưng file này cũng bị bỏ qua. Như vậy không sao, vì pilothify không đưa nó vào graph.
+  - Path mà process không đọc được (EPERM/EACCES) do một luật cấm khác. Đó có thể là:
+    - file đang track mà git báo nhầm là đã xoá;
+    - file chưa track mà sandbox vẫn cho thấy tên;
+    - thư mục không liệt kê được, nếu trong đó có file đang track. Thư mục được gộp thành một mục, nên các file chưa track ở trong cũng được bỏ qua.
+
+    Dấu ghi lại các path này ở trường `unreadable`, và phía kiểm tra ở bên kia sandbox bỏ qua đúng các path đó. `fe graph status` liệt kê chúng ở trường `unreadable_paths`.
+    - Dấu không thể mang mục `.` hay một path sai dạng.
+    - Mục đúng dạng như `src` vẫn được chấp nhận. Dấu nằm trong vùng mà agent ghi được, nên bản thân dấu vốn đã có thể bị làm giả.
+- **Giới hạn còn lại, chỉ khi team tự thêm luật cấm đọc.** Template không gặp các trường hợp này.
+  - Lần refresh nền (`graph-refresh.mjs`, chạy ngoài sandbox) không thấy các path bị ẩn. Vì vậy, nếu dưới luật cấm có file chưa track hoặc file đã sửa, thì sau mỗi lần refresh nền, lần kiểm đầu tiên trong sandbox sẽ refresh thêm một lần. Report đếm cả những lần này.
+  - G10 vẫn báo lệch như 0.4.2 trong hai trường hợp:
+    - file chưa track nằm trong một thư mục mà sandbox không liệt kê được, khi trong thư mục đó không có file đang track nào bị ẩn;
+    - file mới hoặc file `git mv` đã stage vào một path bị cấm theo từng file.
+  - Có hơn 1.000 mục không đọc được (đếm sau khi gộp theo thư mục), hoặc khoảng 200 KB tham số. Khi đó fingerprint là `null` trong suốt thời gian còn từng ấy path bị ẩn:
+    - graph luôn bị coi là lệch;
+    - G10 ở mức `block` tiếp tục chặn;
+    - `fe graph ensure` không gỡ được.
+
+    Lý do đầy đủ chỉ hiện khi chạy `fe graph status` trong sandbox. Ngoài sandbox, G10 chỉ báo "working tree changed since the last refresh". Dù vậy, đây vẫn là trạng thái báo lệch, không bao giờ âm thầm báo "fresh".
+  - Mục thư mục mà một dấu đã ghi vẫn tiếp tục bị bỏ qua sau khi luật cấm được gỡ. Tình trạng này kéo dài cho tới khi có lần refresh ghi dấu mới; `fe run start` luôn làm việc đó.
+- **Không còn báo "fresh" nhầm khi lỗi.** Khi git lỗi, hoặc vượt giới hạn trên, fingerprint là `null`. Graph bị coi là lệch, kèm lý do, và `fe graph ensure` in cảnh báo. Ở 0.4.2, nếu git lỗi (ví dụ không đọc được `.git/index`), fingerprint lại ra giá trị của cây sạch.
+- **Dấu cũ vẫn dùng được, với một ngoại lệ.** Khi các file trên không có thay đổi, fingerprint giống hệt bản 0.4.2, nên dấu ghi ngoài sandbox trước khi nâng cấp vẫn khớp. Riêng dấu mà 0.4.2 ghi trong sandbox, ở repo có track file `.env*`, sẽ bị coi là lệch một lần. Việc này tốn thêm một lần refresh.
+- **Lỗi pilothify dễ đọc hơn.** Khi pilothify lỗi, `fe graph ensure` in dòng nêu lỗi và đường dẫn tới log đầy đủ (`<id>.last-failure.log`, nằm cạnh dấu). Trước đây lệnh in 6 dòng cuối của traceback, nối với nhau bằng `|`.
+  - Ứng viên là dòng exception của traceback cuối cùng (đúng với exception sau cùng của một chuỗi, bất kể exception tên gì), và dòng `error:`/`fatal:`. Dòng nào in sau thì thắng. Nhờ vậy traceback debug in trước dòng `error:` cuối không được chọn.
+  - Với ExceptionGroup, luôn lấy dòng của group ngoài cùng, kể cả khi sau đó còn dòng `error:`. pilothify hiện không dùng ExceptionGroup.
+  - Nếu sau lỗi thật, Python còn in thêm một traceback "Exception ignored in …" lúc tắt (ví dụ một `ResourceWarning` của process pool), thì dòng cuối của traceback đó có thể được chọn. Lỗi thật vẫn có trong log đầy đủ.
+  - Đường dẫn chứa chữ "error" không bị nhận nhầm. Traceback bị cắt cụt, không có dòng exception, thì được báo đúng như vậy.
+  - Process bị kill thì thông báo ghi `killed by SIGKILL`.
+  - pilothify được gọi với `NO_COLOR=1` và `PYTHON_COLORS=0`, nên log và thông báo không có mã màu.
+- **Ghi chú về lần dựng graph đầu tiên** (thêm vào `fe-setup`). Số đo trong sandbox, trên portal (pilothify quét 3.440 file):
+  - Lần dựng đầu mất 26 s với pilothify 0.1.7, so với 17 s ở bản 0.1.5.
+  - Lần `update --full` đầu tiên sau đó mất 22 s, dù cache trúng 100%.
+  - Từ lần thứ hai trở đi chỉ mất 11–13 s, kể cả khi đổi nhánh có đổi lockfile.
+  - Lý do có thể là: từ pilothify 0.1.7, lần đầu ghi cache AST cho mọi file JS/TS (khoảng 33 MB). Trên máy có phần mềm diệt virus như Microsoft Defender, lần đầu đọc lại các file cache vừa ghi cũng chậm.
+- **Test.** Có 81 test unit, thêm 12 test mới.
+  - Hai cách ẩn file khỏi git:
+    - `chmod 000` một thư mục: git gặp lỗi EACCES và không liệt kê được thư mục. Cách này chạy được trên CI Linux.
+    - `sandbox-exec` với profile Seatbelt (chỉ trên macOS): lỗi EPERM, tên file vẫn thấy được. Đây chính là cơ chế sandbox của Claude Code dùng.
+  - Các test kiểm `graph status`, đầu phiên và G10 ở mức `block`, theo cả hai chiều: ghi dấu trong sandbox rồi kiểm ngoài, và ngược lại.
+  - Đo trên portal bằng Seatbelt: bản 0.4.2 cho `1c022ab5…` ngoài sandbox và `5d71565e…` trong sandbox, bản 0.4.3 cho `1c022ab5…` ở cả hai phía.
+  - Một agent độc lập đã kiểm hai vòng, trên bản sao, với Seatbelt và trên cả hai repo thật. Các giới hạn nó tìm ra mà chưa sửa được nêu ở trên.
+
 ## v0.4.2 — 2026-11-23
 
 Repo cài mới nhận Spec Kit 1.4.3. Repo đang dùng nâng thẳng từ 1.4.0 lên 1.4.3 bằng `/fe-delivery:speckit-upgrade`.

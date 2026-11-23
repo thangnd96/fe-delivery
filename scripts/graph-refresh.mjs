@@ -32,7 +32,8 @@ if (root && existsSync(graphFile(root))) {
   if (ok && ctx) {
     const counts = graphCounts(root);
     writeStamp(ctx.key, root, {
-      head: before.head, fingerprint: before.fingerprint, mode: 'incremental', at: new Date().toISOString(), exit: 0, nodes: counts.nodes, edges: counts.edges,
+      head: before.head, fingerprint: before.fingerprint, unreadable: before.unreadable,
+      mode: 'incremental', at: new Date().toISOString(), exit: 0, nodes: counts.nodes, edges: counts.edges,
     });
   }
   log(`pilothify update . → ${res.error ? res.error.code : `exit ${res.status}`}${ok ? '' : ` ${output.trim().split('\n').slice(-3).join(' | ')}`}`);

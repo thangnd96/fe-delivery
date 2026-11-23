@@ -5,11 +5,11 @@
 //   git hooks     `pilothify hook install --no-merge-driver` per clone, recorded so that
 //                 fe-delivery only ever removes hooks it installed itself.
 import { spawnSync } from 'node:child_process';
-import { existsSync, readFileSync, rmSync } from 'node:fs';
-import { relative } from 'node:path';
+import { existsSync, mkdirSync, readFileSync, rmSync, writeFileSync } from 'node:fs';
+import { dirname, relative } from 'node:path';
 import {
-  gitHooksRecordFile, graphFile, graphFreshness, isLinkedWorktree, outDirName, pilothifyHooks, short, waitForRebuildLock,
-  worktreeStamp, writeStamp,
+  failureLogFile, gitHooksRecordFile, graphFile, graphFreshness, isLinkedWorktree, outDirName, pilothifyHooks, short,
+  waitForRebuildLock, worktreeStamp, writeStamp,
 } from './freshness.mjs';
 import { agentFiles, readJson, writeJson } from './state.mjs';
 
@@ -22,14 +22,17 @@ export function enforceLevel(profile) {
 }
 
 export function runPilothify(root, args) {
+  const { FORCE_COLOR, ...env } = process.env; // plain text: the output is logged and parsed
   const res = spawnSync('pilothify', args, {
     cwd: root,
     encoding: 'utf8',
-    env: { ...process.env, PILOTHIFY_BACKEND: 'none' },
+    env: { ...env, PILOTHIFY_BACKEND: 'none', NO_COLOR: '1', PYTHON_COLORS: '0' },
     maxBuffer: 64 * 1024 * 1024,
   });
-  return { status: res.status, error: res.error || null, stdout: res.stdout || '', stderr: res.stderr || '' };
+  return { status: res.status, signal: res.signal || null, error: res.error || null, stdout: res.stdout || '', stderr: res.stderr || '' };
 }
+
+const howEnded = (res) => (res.status === null && res.signal ? `killed by ${res.signal}` : `exit ${res.status}`);
 
 export function pilothifyVersion() {
   const res = spawnSync('pilothify', ['--version'], { encoding: 'utf8' });
@@ -39,6 +42,51 @@ export function pilothifyVersion() {
 
 function lastLines(text, n) {
   return String(text || '').trim().split('\n').filter(Boolean).slice(-n).join(' | ');
+}
+
+// The line that names a failure. The last lines of a Python traceback are mostly frames.
+// Candidates, of which the one printed last wins (a debug traceback before the final
+// `error:` line, or stdout's traceback before stderr's error, lose to the later line):
+// - the exception line of a traceback: the first line at column 0 after the frames of the
+//   last traceback (the final exception of a chain, whatever it is called), or of the
+//   outermost exception group;
+// - a line that reads as an error (`error: …`, `ERROR: …`, `fatal: …`, `SomeError: …`),
+//   not a path that merely contains "error".
+// Otherwise the last line, unless that is a frame of a traceback cut short.
+export function failureLine(output) {
+  let lines = String(output || '').replace(/\x1b\[[0-9;?]*[A-Za-z]/g, '').split('\n').map((l) => l.replace(/\s+$/, ''));
+  if (lines.some((l) => l.includes('Exception Group Traceback (most recent call last):'))) {
+    // Strip the group's box drawing (`  | `, `  + `) and drop its separators (`+-+---- 1 ----`).
+    lines = lines.map((l) => l.replace(/^\s*[+|] ?/, '')).filter((l) => !/^[-+|\s\d]*-{3,}[-+|\s\d]*$/.test(l));
+  }
+  const group = lines.findIndex((l) => /^Exception Group Traceback \(most recent call last\):$/.test(l.trim()));
+  const start = group !== -1 ? group : lines.findLastIndex((l) => /^Traceback \(most recent call last\):$/.test(l.trim()));
+  let exception = -1;
+  if (start !== -1) {
+    const i = lines.slice(start + 1).findIndex((l) => l.trim() && !/^\s/.test(l));
+    if (i !== -1) exception = start + 1 + i;
+  }
+  // A group's sub-exceptions come after its own line and would win; the group line names it.
+  if (group !== -1 && exception !== -1) return lines[exception].trim();
+  const errorish = (l) => /(?:^|[\s\]:])(?:error|fatal)\s*:/i.test(l) || /^[A-Za-z_][\w.]*(?:Error|Exception|\.error)(?::|$)/.test(l.trim());
+  const error = lines.findLastIndex((l) => l.trim() && errorish(l));
+  const best = Math.max(exception, error);
+  if (best !== -1) return lines[best].trim();
+  if (start !== -1) return 'a Python traceback that ends before its exception line (see the full output)';
+  return lines.findLast((l) => l.trim())?.trim() || '(no output)';
+}
+
+// Keeps the whole output where the user can read it; returns the path, or null if it
+// could not be written.
+function writeFailureLog(ctx, rec, res) {
+  const file = failureLogFile(ctx.key, ctx.root);
+  try {
+    mkdirSync(dirname(file), { recursive: true });
+    writeFileSync(file, `$ ${rec.command}\n# ${howEnded(res)} at ${rec.at}, in ${ctx.root}\n\n--- stdout\n${res.stdout}\n--- stderr\n${res.stderr}`);
+    return file;
+  } catch {
+    return null;
+  }
 }
 
 export function graphCounts(root) {
@@ -128,13 +176,13 @@ export function ensureGraph(ctx, { mode = 'auto', checkpoint = 'manual', runId =
   rec.command = `pilothify ${args.join(' ')}`;
   rec.exit = res.status;
   const output = `${res.stdout}\n${res.stderr}`;
-  if (REFUSAL.test(output)) {
-    const why = output.split('\n').find((l) => REFUSAL.test(l)) || '';
-    rec.error = `pilothify refused to write the graph (${rec.command}, exit ${res.status}): ${why.trim()}`;
-    return finish();
-  }
-  if (res.status !== 0) {
-    rec.error = `${rec.command} failed (exit ${res.status}): ${lastLines(output, 6)}`;
+  const refused = REFUSAL.test(output);
+  if (refused || res.status !== 0) {
+    rec.log = writeFailureLog(ctx, rec, res);
+    const where = rec.log ? ` (full output: ${rec.log})` : '';
+    rec.error = refused
+      ? `pilothify refused to write the graph (${rec.command}, ${howEnded(res)}): ${(output.split('\n').find((l) => REFUSAL.test(l)) || '').trim()}${where}`
+      : `${rec.command} failed (${howEnded(res)}): ${failureLine(output)}${where}`;
     return finish();
   }
   const counts = graphCounts(ctx.root);
@@ -142,8 +190,10 @@ export function ensureGraph(ctx, { mode = 'auto', checkpoint = 'manual', runId =
   // The stamp is the tree as it was before the refresh: if it changed meanwhile, the next
   // check sees the difference and refreshes again.
   writeStamp(ctx.key, ctx.root, {
-    head: before.head, fingerprint: before.fingerprint, mode: rec.mode, at: rec.at, exit: rec.exit, nodes: rec.nodes, edges: rec.edges,
+    head: before.head, fingerprint: before.fingerprint, unreadable: before.unreadable,
+    mode: rec.mode, at: rec.at, exit: rec.exit, nodes: rec.nodes, edges: rec.edges,
   });
+  if (before.fingerprint === null) rec.warning = `the working tree could not be fingerprinted (${before.error}), so the next check refreshes again`;
   return finish();
 }
 
@@ -153,7 +203,8 @@ export function describeRefresh(rec) {
   const waited = rec.waited_ms ? `; waited ${(rec.waited_ms / 1000).toFixed(1)} s for another rebuild` : '';
   if (rec.mode === 'unchanged') return `graph: up to date with ${tree}; nothing to refresh${waited}.`;
   const took = ((rec.ms - (rec.waited_ms || 0)) / 1000).toFixed(1);
-  return `graph: ${rec.mode} refresh done (${rec.command}, ${took} s): ${rec.nodes ?? '?'} nodes, ${rec.edges ?? '?'} edges; matches ${tree}${waited}.`;
+  const note = rec.warning ? ` Warning: ${rec.warning}.` : '';
+  return `graph: ${rec.mode} refresh done (${rec.command}, ${took} s): ${rec.nodes ?? '?'} nodes, ${rec.edges ?? '?'} edges; matches ${tree}${waited}.${note}`;
 }
 
 // ---------- git hooks ----------

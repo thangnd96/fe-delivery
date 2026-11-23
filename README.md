@@ -55,7 +55,26 @@ G9, G10 và bước kiểm graph của `fe intake save` theo `graph.enforce` tro
 
 ## Graph luôn khớp code
 
-Graph khớp với một **cây làm việc**, không chỉ với một commit. fe ghi dấu `{ head, fingerprint }` sau mỗi lần refresh thành công. `fingerprint` là hash của `git status`, `git diff HEAD` và nội dung các file chưa track; thư mục `pilothify-out/` không được tính. Mọi chỗ kiểm độ mới đều so cả hai phần. Graph thiếu `built_at_commit`, hoặc chưa có dấu, luôn bị coi là lệch.
+Graph khớp với một **cây làm việc**, không chỉ với một commit. fe ghi dấu `{ head, fingerprint }` sau mỗi lần refresh thành công. `fingerprint` là hash của `git status`, `git diff HEAD` và nội dung các file chưa track. Fingerprint không tính:
+- thư mục `pilothify-out/`;
+- các file mà template settings cấm đọc, nên sandbox của Claude Code không đọc được: `.env`, `.env.*` (kể cả `.env.example`), `*.pem` và `*.key`, ở mọi cấp thư mục. pilothify cũng không đưa các file này vào graph.
+- path mà process không đọc được (EPERM/EACCES) do một luật cấm khác. Đó có thể là:
+  - file đang track mà git báo nhầm là đã xoá;
+  - file chưa track mà sandbox chỉ cho thấy tên;
+  - thư mục không liệt kê được, nếu trong đó có file đang track.
+
+  Dấu ghi lại các path này ở trường `unreadable`, và phía kiểm tra cũng bỏ qua đúng các path đó.
+
+Với các luật cấm của template, dấu tính trong sandbox (lệnh `fe` do agent chạy) luôn khớp với dấu tính ngoài sandbox (hook của fe và lần refresh nền `graph-refresh.mjs`).
+
+Nếu team tự thêm luật cấm đọc, còn ba giới hạn:
+- Dưới luật đó có file chưa track hoặc file đã sửa: sau mỗi lần refresh nền, lần kiểm đầu tiên trong sandbox sẽ refresh thêm một lần.
+- Hai trường hợp vẫn báo lệch như 0.4.2:
+  - file chưa track trong một thư mục mà sandbox không liệt kê được, khi trong thư mục đó không có file đang track nào bị ẩn;
+  - file mới hoặc file `git mv` đã stage vào path bị cấm theo từng file.
+- Hơn 1.000 mục không đọc được: graph luôn bị coi là lệch, cho tới khi số path bị ẩn giảm xuống.
+
+Khi git lỗi, hoặc vượt giới hạn 1.000 mục, fingerprint là `null` và graph bị coi là lệch. Lý do đầy đủ chỉ hiện khi chạy `fe graph status` trong sandbox. Ngoài sandbox, G10 chỉ báo là cây làm việc đã đổi kể từ lần refresh cuối. Mọi chỗ kiểm độ mới đều so cả hai phần. Graph thiếu `built_at_commit`, hoặc chưa có dấu, luôn bị coi là lệch.
 
 | Thời điểm | Ai lo | Làm gì |
 |---|---|---|

@@ -60,6 +60,8 @@ Write `.specify/memory/constitution.md` from the real conventions, and ask befor
 
 ## 6. Graph, git hooks, baseline, commit
 - Build the graph with `fe graph ensure`. Report the node count and build time.
+  - Tell the user the first builds are the slow ones, so a long wait is not a hang.
+  - Measured inside the sandbox on a 3,440-file front end: the first build took 26 s with pilothify 0.1.7 (17 s with 0.1.5), and the first `update --full` after it (at `fe run start`) took 22 s although every file came from the cache. Later refreshes took 11–13 s, branch switches that change the lockfile included.
 - Unless the profile sets `graph.git_hooks: false`, ask the user to run, outside the sandbox (the `!` prefix or a terminal; git hooks are a protected path):
   `node "<plugin>/scripts/fe.mjs" git-hooks install`
   - It runs `pilothify hook install --no-merge-driver`: post-commit, post-checkout, post-merge and post-rewrite hooks that rebuild the graph in the background. There is no merge driver, because `pilothify-out/` is gitignored and `graph.json` is never merged.

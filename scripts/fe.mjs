@@ -447,6 +447,7 @@ function graphStatusData(ctx) {
     head: f.current.head,
     fingerprint: f.current.fingerprint,
     dirty_paths: f.current.dirty_paths,
+    unreadable_paths: f.current.unreadable || [],
     stamp: readStamp(ctx.key, ctx.root),
     lock: holder ? { held: true, pid: holder.pid } : { held: false, pid: null },
     linked_worktree: hooks.linked_worktree,
@@ -464,6 +465,9 @@ function graphStatus(o) {
   }
   console.log(`graph: ${!s.graph_exists ? 'missing' : s.fresh ? 'fresh' : `stale (${s.reason})`}`);
   console.log(`working tree: HEAD ${short(s.head)}${s.dirty_paths ? ` + ${s.dirty_paths} uncommitted path(s)` : ''}`);
+  if (s.unreadable_paths.length) {
+    console.log(`not readable here, counted as unchanged: ${s.unreadable_paths.slice(0, 5).join(', ')}${s.unreadable_paths.length > 5 ? ', …' : ''}`);
+  }
   if (s.stamp) console.log(`last refresh by fe: ${s.stamp.mode} at ${s.stamp.at} (HEAD ${short(s.stamp.head)}, ${s.stamp.nodes ?? '?'} nodes, ${s.stamp.edges ?? '?'} edges)`);
   console.log(`graph lock: ${s.lock.held ? `held by pid ${s.lock.pid ?? '?'} (a rebuild is running)` : 'free'}`);
   console.log(`pilothify git hooks: ${describeGitHooks(gitHooksState(ctx))}`);

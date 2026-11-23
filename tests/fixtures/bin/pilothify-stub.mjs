@@ -4,6 +4,8 @@
 //   FE_STUB_PILOTHIFY_LOG      JSONL file that receives {argv, cwd, at, backend} per call
 //   FE_STUB_PILOTHIFY_VERSION  reported version (default 0.1.6; < 0.1.6 lacks --full and --no-merge-driver)
 //   FE_STUB_PILOTHIFY_MODE     ok (default) | refuse (exit 1) | refuse0 (refusal text, exit 0) | fail
+//                              | traceback (a Python traceback ending in PermissionError, exit 1)
+//                              | killed (progress output, then SIGKILL)
 //   FE_STUB_PILOTHIFY_SLEEP_MS delay inside update/extract, holding pilothify-out/.rebuild.lock
 import { execFileSync } from 'node:child_process';
 import { appendFileSync, existsSync, mkdirSync, readFileSync, rmSync, writeFileSync } from 'node:fs';
@@ -63,6 +65,23 @@ function rebuild() {
   if (mode === 'fail') {
     process.stderr.write('pilothify stub: rebuild failed\n');
     process.exit(1);
+  }
+  if (mode === 'traceback') {
+    process.stdout.write('[pilothify] scanning 3 files\n');
+    process.stderr.write([
+      'Traceback (most recent call last):',
+      '  File "/opt/pilothify/lib/python3.13/site-packages/pilothify/cli.py", line 4750, in main',
+      '    run_update(args)',
+      '  File "/opt/pilothify/lib/python3.13/site-packages/pilothify/watch.py", line 2412, in run_update',
+      '    with lock_path.open("w") as fh:',
+      "PermissionError: [Errno 1] Operation not permitted: '/Users/dev/.cache/pilothify/state/a-rather-long-directory-name/graph.lock'",
+      '',
+    ].join('\n'));
+    process.exit(1);
+  }
+  if (mode === 'killed') {
+    writeFileSync(1, '[pilothify] parsing src/utils/error.ts\n[pilothify] parsing src/utils/format.ts\n');
+    process.kill(process.pid, 'SIGKILL');
   }
   if (mode === 'refuse' || mode === 'refuse0') {
     process.stderr.write('[pilothify] WARNING: Refusing to overwrite — rebuild has 3 nodes but existing graph.json has 9.\n');
