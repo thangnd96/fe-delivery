@@ -40,6 +40,6 @@
   },
   "rollout": { "mode": "full" },
   "graph": { "enforce": "warn", "git_hooks": true },
-  "versions": { "speckit": "1.4.2", "pilothify": "0.1.7" },
+  "versions": { "speckit": "1.4.3", "pilothify": "0.1.7" },
   "data": { "commit_intake_summary": true }
 }
