@@ -1,8 +1,8 @@
 {
   "speckit": {
-    "tested": "1.4.0",
-    "range": ">=1.4.0 <1.5.0",
-    "install": "uv tool install specify-cli==1.4.0",
+    "tested": "1.4.2",
+    "range": ">=1.4.2 <1.5.0",
+    "install": "uv tool install specify-cli==1.4.2",
     "required_core_skills": [
       "speckit-constitution",
       "speckit-specify",
@@ -15,7 +15,11 @@
       "speckit-converge"
     ],
     "required_extensions": {
-      "bug": ["speckit-bug-assess", "speckit-bug-fix", "speckit-bug-test"]
+      "bug": [
+        "speckit-bug-assess",
+        "speckit-bug-fix",
+        "speckit-bug-test"
+      ]
     }
   },
   "pilothify": {
