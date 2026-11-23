@@ -49,6 +49,7 @@ export function loadRun(ctx, runId = ctx.activeRunId) {
     intake: readJson(a.intake),
     classification: readJson(a.classification),
     claims: readJson(a.claims, []),
+    graph: readJson(a.graph, { refreshes: [], warnings: [] }),
     state: readJson(h.state),
     diff: readJson(h.diff),
     evidence: readJson(h.evidence, []),

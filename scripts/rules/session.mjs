@@ -1,14 +1,13 @@
 // S1/S2 — SessionStart: tell Claude how to call the fe CLI, report the active run, and
 // surface cached version / graph-freshness notices. Refreshes the cache in the background.
 import { spawn } from 'node:child_process';
-import { closeSync, existsSync, openSync, readSync, statSync } from 'node:fs';
 import { join } from 'node:path';
-import { loadGraph } from '../lib/graph.mjs';
-import { head } from '../lib/git.mjs';
+import { graphFreshness, isLinkedWorktree } from '../lib/freshness.mjs';
 import { legacyWorktreeLine, legacyWorktreeNotice } from '../lib/install.mjs';
 import { addContext } from '../lib/io.mjs';
 import { atlassianReminder, atlassianV1InProject } from '../lib/mcp.mjs';
 import { feCliPath, pluginRoot, zones } from '../lib/paths.mjs';
+import { enforceLevel, gitHooksState } from '../lib/pilothify.mjs';
 import { loadRun } from '../lib/run.mjs';
 import { compare, satisfies } from '../lib/semver.mjs';
 import { readJson } from '../lib/state.mjs';
@@ -78,35 +77,29 @@ export function onSessionStart(input, ctx) {
   if (stale && !process.env.FE_DELIVERY_NO_REFRESH) refreshInBackground();
   lines.push(...versionNotices(cache, ctx.profile, compat(), process.env.FE_DELIVERY_MAINTAINER === '1'));
   if (atlassianV1InProject(ctx.root)) lines.push(atlassianReminder());
-  const graph = existsSync(join(ctx.root, 'pilothify-out', 'graph.json')) ? loadGraphHeader(ctx.root) : null;
-  if (!graph) lines.push(`No pilothify graph yet. Build it: node "${feCliPath()}" graph ensure`);
-  else if (graph.built_at_commit && graph.built_at_commit !== head(ctx.root)) {
-    lines.push(`pilothify graph is behind HEAD. Refresh: node "${feCliPath()}" graph ensure`);
-  }
+  lines.push(...graphNotices(ctx));
   return addContext('SessionStart', lines.join('\n'));
 }
 
-// Reads only the first and last 64 KiB of a (possibly very large) graph.json to find
-// built_at_commit without parsing the whole file. Small graphs are parsed normally.
-function loadGraphHeader(root) {
-  const file = join(root, 'pilothify-out', 'graph.json');
-  try {
-    const size = statSync(file).size;
-    if (size <= 256 * 1024) {
-      const g = loadGraph(root);
-      return g ? { built_at_commit: g.built_at_commit || null } : null;
-    }
-    const fd = openSync(file, 'r');
-    const chunk = 64 * 1024;
-    const headBuf = Buffer.alloc(chunk);
-    const tailBuf = Buffer.alloc(chunk);
-    readSync(fd, headBuf, 0, chunk, 0);
-    readSync(fd, tailBuf, 0, chunk, size - chunk);
-    closeSync(fd);
-    const text = headBuf.toString('utf8') + tailBuf.toString('utf8');
-    const m = text.match(/"built_at_commit"\s*:\s*"([0-9a-f]{7,40})"/);
-    return { built_at_commit: m ? m[1] : null };
-  } catch {
-    return null;
+// Graph freshness is judged against fe's stamp ({ head, fingerprint } of the last refresh),
+// so a branch switch, a pull or an uncommitted edit all count. A graph without
+// built_at_commit, or without a stamp, is never assumed fresh.
+export function graphNotices(ctx) {
+  const lines = [];
+  const fe = `node "${feCliPath()}"`;
+  const f = graphFreshness(ctx.key, ctx.root);
+  if (!f.graph) lines.push(`No pilothify graph yet. Build it: ${fe} graph ensure`);
+  else if (!f.fresh) {
+    lines.push(`The pilothify graph may not match the code (${f.reason}). Refresh: ${fe} graph ensure (a run start rebuilds it in full).`);
   }
+  if (enforceLevel(ctx.profile) === 'off') return lines;
+  if (isLinkedWorktree(ctx.root)) {
+    lines.push('This checkout is a linked worktree: pilothify\'s git hooks skip rebuilds here, so fe refreshes the graph itself at run start and at its checkpoints.');
+  } else {
+    const hooks = gitHooksState(ctx);
+    if (hooks.wanted && !hooks.any) {
+      lines.push(`pilothify git hooks are not installed in this clone, so commits, branch switches and pulls do not refresh the graph. Ask the user to run, outside the sandbox: ! ${fe} git-hooks install`);
+    }
+  }
+  return lines;
 }

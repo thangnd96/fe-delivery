@@ -1,5 +1,39 @@
 # Changelog
 
+## v0.4.0 — 2026-11-23
+
+Graph phải được query trước khi đọc code, và phải luôn khớp code. Bản này cần pilothify 0.1.6 (`update --full`, `hook install --no-merge-driver`, sửa lỗi bản tăng dần để lại stub khi import qua barrel). Chạy với 0.1.5 vẫn được, nhưng đầu phiên sẽ nhắc nâng cấp.
+
+- **Query graph trước (A):**
+  - `fe intake save` kiểm bước graph: `codebase.queries` không được rỗng; query nào ra exit 4 phải ghi `fallback` grep (trường mới, gồm `tool` và `pattern`); hook phải thấy query đó đã thật sự chạy trong run; và run phải có ít nhất một lần refresh graph thành công. Mỗi query trong intake nay bắt buộc có `question` và `exit_code`.
+  - Luật mới G9: trong run, `fe-intake` chưa được dùng `grep`/`rg`/`find`/`git grep`, Grep hay Glob khi run chưa có `pilothify query`/`explain` nào. Matcher của PreToolUse nay gồm cả `Grep|Glob|Agent|Task`. Mọi lần chạy `pilothify query|explain|path|affected` (cả qua MCP) đều được hook ghi lại.
+  - Luật mới G10: `fe-reviewer` chỉ bắt đầu khi graph khớp cây làm việc.
+  - Report có mục `## Graph`: số lần refresh (full / tăng dần / không đổi / lỗi); số query của intake theo exit 0/3/4; có grep fallback không; số query hook thấy; graph so với cây làm việc; và các cảnh báo.
+  - `graph.enforce` trong profile nhận `off`, `warn` hoặc `block`, mặc định `warn` (như `rollout.mode`). Mức `warn` cho đi tiếp, cảnh báo ở console và ghi vào report. Mức `block` thì từ chối `intake save`, chặn `fe classify` khi chưa có intake, và từ chối G9, G10. Mức `off` không refresh và không kiểm.
+- **Graph theo code (B):**
+  - Dấu độ mới là `{ head, fingerprint }`, gồm cả HEAD lẫn cây làm việc: hash của `git status`, `git diff HEAD` và nội dung file chưa track, bỏ qua `pilothify-out/`. `fe graph ensure` ghi `{ head, fingerprint, mode, at, exit, nodes }` vào dấu của checkout và vào run. Graph thiếu `built_at_commit` (`null`) hoặc chưa có dấu bị coi là lệch; trước đây đầu phiên bỏ qua graph `null`.
+  - Vòng đời: `fe run start` dựng lại toàn bộ (`pilothify update --full`). `fe intake save`, `fe classify` (kể cả C3), `fe verify` (nên trước fe-reviewer graph đã có code mới) và `fe run end` gọi `update` khi dấu lệch. Sửa code thì không update.
+  - Chờ khoá: trước khi đọc graph, fe chờ `pilothify-out/.rebuild.lock` được nhả (tối đa 100 s, có thông báo). Khoá do process đã chết để lại thì không chờ.
+  - P4 (PostToolUse): lệnh git đổi cây làm việc (`checkout|switch|pull|merge|rebase|reset|stash|restore|cherry-pick|revert`) khởi chạy `pilothify update` ở nền (`scripts/graph-refresh.mjs`), và báo cho agent biết.
+  - `fe git-hooks install|uninstall|status`: cài git hook của pilothify cho từng clone bằng `pilothify hook install --no-merge-driver`. Hook nối vào hook có sẵn (Husky, `core.hooksPath`), không ghi đè. fe ghi lại việc mình cài, nên chỉ gỡ hook do chính nó cài; `fe uninstall` gỡ luôn. `fe-setup` cài hook trừ khi profile đặt `graph.git_hooks: false`. Đầu phiên và `fe doctor` báo trạng thái hook. `.claude/settings.json` mẫu đặt `env.PILOTHIFY_REBUILD_LOG = pilothify-out/rebuild.log`.
+  - Linked worktree: hook của pilothify bỏ qua ở đây, nên các điểm kiểm của fe tự update. Đầu phiên có nhắc.
+  - Từ chối ghi là lỗi: pilothify từ chối ghi (guard chống co graph) hoặc thoát mã khác 0 thì `fe graph ensure` thoát mã 1, ghi rõ lý do, và không cập nhật dấu. Trước đây lệnh in "exit N" rồi vẫn coi là xong.
+  - `fe graph status [--json]` mới: graph có khớp không, ai đang giữ khoá, trạng thái hook. `fe run status` có thêm trường `graph`.
+- **Độ chính xác (C):** `fe graph ensure --full` dựng lại toàn bộ bằng pipeline của `update`, không dùng `extract` (pilothify 0.1.5 không có `--full` nên fe dùng `--force`). Lần dựng đầu tiên của repo vẫn là `extract --code-only`, để docs không thêm cạnh vào blast radius. Bản classification ghi thêm `graph` (`refresh`, `fresh`, `head`).
+- **Đo trên bản clone của repo portal** (3.477 file code), pilothify 0.1.6:
+  - đổi nhánh giữa phiên rồi `fe run start`: fe chờ lượt rebuild nền của hook, rồi graph khớp HEAD mới trước intake;
+  - sau `fe run start`, node và cạnh trùng với bản dựng toàn bộ;
+  - component thêm trong task hiện trong `pilothify affected` sau `fe verify`;
+  - commit trong lúc hook đang dựng lại: `fe classify` chờ khoá rồi mới đọc graph;
+  - trong linked worktree, hook bỏ qua nhưng graph vẫn được update.
+- **Test:** 68 test unit, thêm 25 (`graph-lifecycle.test.mjs`). Cả 25 đỏ trên 0.3.1 và xanh trên bản này. pilothify trong test unit là test double ở `tests/fixtures/bin`. Thêm contract P9–P12 với pilothify 0.1.6 thật; chúng skip khi pilothify cũ hơn.
+- **Chưa làm:** tự chuyển sang `--full` khi graph còn stub `external` mang tên đường dẫn trong repo. Trên repo portal, ngay cả bản dựng toàn bộ cũng có 18 stub như vậy, và chúng hợp lệ: import file JSON/CSS, hay re-export symbol của thư viện ngoài. Vì vậy dấu hiệu này không phân biệt được sai lệch. pilothify 0.1.6 đã hết sai lệch ở bản tăng dần, và mỗi run vẫn dựng lại toàn bộ lúc bắt đầu.
+- **Nâng cấp repo đang dùng 0.3.x:**
+  - không cần cài lại, vì mặc định là `warn`;
+  - mỗi clone chạy `fe git-hooks install` một lần, ngoài sandbox;
+  - muốn log của hook rebuild nằm trong repo thì thêm `"env": {"PILOTHIFY_REBUILD_LOG": "pilothify-out/rebuild.log"}` vào `.claude/settings.json`; `fe doctor` có nhắc;
+  - nâng pilothify lên 0.1.6 theo `compat/speckit.json`.
+
 ## v0.3.1 — 2026-11-17
 
 - **Làm thẳng trên checkout hiện tại, không ép tách worktree:**

@@ -20,8 +20,9 @@ Các quyết định thiết kế (ADR, kèm nguồn: tài liệu Claude Code, S
 | Skill `fe-deliver` | Conductor, và là skill duy nhất model tự gọi được. Các tier nằm trong `references/`. |
 | Skill `/fe-delivery:fe-setup`, `/fe-delivery:fe-uninstall`, `/fe-delivery:speckit-upgrade` | Cài vào repo; gỡ sạch theo manifest; nâng cấp Spec Kit có review. Chỉ chạy khi người dùng gọi. |
 | Agent `fe-intake`, `fe-verifier`, `fe-reviewer` | Intake chỉ đọc; kiểm chứng L2/L3; review độc lập. |
-| `hooks/hooks.json` → `scripts/hook.mjs` | Guard: U1 · S · G0–G6 · SA · P1–P3 · T1. |
-| `scripts/fe.mjs` | CLI cho conductor: `run`, `intake`, `classify`, `gate`, `verify`, `evidence`, `report`, `graph`, `doctor`, `install`, `uninstall`. |
+| `hooks/hooks.json` → `scripts/hook.mjs` | Guard: U1 · S · G0–G10 · SA · P1–P4 · T1. |
+| `scripts/fe.mjs` | CLI cho conductor: `run`, `intake`, `classify`, `gate`, `verify`, `evidence`, `report`, `graph ensure\|status`, `git-hooks`, `doctor`, `install`, `uninstall`. |
+| `scripts/graph-refresh.mjs` | Refresh graph ở nền sau lệnh git đổi cây làm việc (do P4 khởi chạy). |
 | `schemas/` | profile, intake, classification, evidence, claim. |
 | `compat/speckit.json` | Phiên bản Spec Kit, pilothify và Claude Code mà plugin đã kiểm. |
 
@@ -41,15 +42,38 @@ Script dùng Node.js ≥ 18 và không có dependency nào. Máy dev FE luôn c�
 | G6 | PreToolUse | Câu hỏi gate phải đúng hai lựa chọn Approve/Reject và không được điền sẵn câu trả lời. |
 | G7 | PreToolUse | Run shadow (dừng sau bước lập plan) không được sửa mã nguồn sản phẩm và không được gọi `speckit-implement`, `speckit-converge`, `speckit-bug-fix`, `speckit-bug-test`. Run là shadow khi profile đặt `rollout.mode = "shadow"`, khi người dùng viết `[stop-after:plan]`, hoặc khi chạy `fe run start --stop-after plan`. Nếu mã nguồn bị đổi qua đường khác (ví dụ Bash) thì run không kết thúc được cho tới khi hoàn tác. |
 | G8 | PreToolUse | Khi đang giao việc, không được sửa `.fe-delivery/profile.json` và install manifest, bằng Edit/Write hay bằng Bash. Run luôn dùng bản profile chụp lúc bắt đầu, nên sửa hoặc xoá file giữa chừng cũng không nới được luật. |
+| G9 | PreToolUse | Graph trước: trong run, `fe-intake` chưa được tìm code bằng `grep`/`rg`/`find`/Grep/Glob khi run chưa có `pilothify query`/`explain` nào. Mỗi lần query được ghi lại cho report và cho `fe intake save`. |
+| G10 | PreToolUse | `fe-reviewer` chỉ bắt đầu khi graph khớp cây làm việc, để `pilothify affected` thấy code mới (`fe graph ensure`). |
 | SA | PreToolUse | `fe-intake`/`fe-reviewer` chỉ đọc; `fe-verifier` không sửa file; subagent không được gọi MCP ghi. |
 | P1 | PostToolUse | Ghi approval từ câu trả lời của người. Chỉ đúng chữ "Approve" mới được tính. |
 | P2 | PostToolUse | Tính lại diff từ git; `last_edit_at` chỉ đổi khi nội dung file đổi. |
 | P3 | PostToolUse | Chỉ tin trailer `FE_*` khi lệnh là một lệnh `fe` trần (không nối lệnh): bắt đầu run, ghi evidence, kết thúc run. Evidence chỉ được nhận khi lệnh check trùng với lệnh trong profile chụp lúc bắt đầu run. |
+| P4 | PostToolUse | Lệnh git đổi cây làm việc (`checkout`, `switch`, `pull`, `merge`, `rebase`, `reset`, `stash`, `restore`, `cherry-pick`, `revert`) khởi chạy `pilothify update` ở nền. |
 | T1 | Stop | Run có thay đổi mà thiếu điều kiện → chặn một lần cho mỗi lượt sửa. Mỗi check phải có lần chạy **pass** sau lần sửa cuối; check fail cũng được ghi lại, nhưng ghi lại là bằng chứng của việc fail. |
+
+G9, G10 và bước kiểm graph của `fe intake save` theo `graph.enforce` trong profile: `warn` (mặc định) cho đi tiếp, cảnh báo ở console và ghi vào report; `block` từ chối; `off` bỏ qua.
+
+## Graph luôn khớp code
+
+Graph khớp với một **cây làm việc**, không chỉ với một commit. fe ghi dấu `{ head, fingerprint }` sau mỗi lần refresh thành công. `fingerprint` là hash của `git status`, `git diff HEAD` và nội dung các file chưa track; thư mục `pilothify-out/` không được tính. Mọi chỗ kiểm độ mới đều so cả hai phần. Graph thiếu `built_at_commit`, hoặc chưa có dấu, luôn bị coi là lệch.
+
+| Thời điểm | Ai lo | Làm gì |
+|---|---|---|
+| Commit, đổi nhánh, merge, rebase (cả khi dev tự làm ngoài agent) | git hook của pilothify, cài bằng `fe git-hooks install` (mỗi clone một lần) | dựng lại ở nền |
+| Agent chạy lệnh git đổi cây làm việc, kể cả `stash`/`reset`/`restore` | P4 | `pilothify update` ở nền |
+| `fe run start` | fe | chờ khoá, rồi **dựng lại toàn bộ** (`pilothify update --full`) |
+| `fe intake save`, `fe classify`, `fe verify` (trước fe-reviewer), `fe run end` | fe | chờ khoá; lệch dấu thì `pilothify update` |
+| Sửa code trong task | không làm gì | |
+
+- **Chờ khoá:** trước khi đọc graph, fe chờ `pilothify-out/.rebuild.lock` được nhả (mặc định tối đa 100 s, dưới timeout 2 phút của một lệnh Bash; đặt lại bằng `FE_DELIVERY_GRAPH_LOCK_TIMEOUT_MS`). Hết giờ thì báo rõ PID đang giữ khoá.
+- **Từ chối ghi là lỗi:** khi pilothify từ chối ghi graph (guard chống co graph) hoặc thoát mã khác 0, `fe graph ensure` thoát mã 1 và dấu cũ được giữ nguyên.
+- **Linked worktree:** hook của pilothify bỏ qua việc dựng lại ở đây; các điểm kiểm của fe vẫn tự refresh.
+- **pilothify 0.1.5:** không có `--full` nên fe dùng `update --force`; `git-hooks install` cần 0.1.6.
+- `fe graph status [--json]` cho biết graph còn khớp không, ai đang giữ khoá, và trạng thái git hook. Report có mục `## Graph`: số lần refresh, số query của intake theo exit code (0/3/4), có grep fallback không, và graph so với cây làm việc lúc viết report.
 
 ## State nằm ngoài repo
 
-- **Agent zone** `~/.fe-delivery/agent/`: CLI `fe` ghi vào đây. Settings cho phép sandbox ghi vào thư mục này.
+- **Agent zone** `~/.fe-delivery/agent/`: CLI `fe` ghi vào đây, gồm cả dấu độ mới của graph theo từng checkout, nhật ký graph của run và bản ghi git hook do fe cài. Settings cho phép sandbox ghi vào thư mục này.
 - **Hook zone** `~/.fe-delivery/hook/`: chỉ hook ghi, gồm active run, approval, evidence đo được, diff, events. Bash bị chặn truy cập ở hai lớp: rule G5 và sandbox.
 
 Khi tắt sandbox, việc bảo vệ hook zone chỉ còn ở mức best-effort; `fe doctor` sẽ cảnh báo.
@@ -80,6 +104,7 @@ Sau đó mở repo FE và chạy `/fe-delivery:fe-setup`. pilothify chỉ cài t
 - **Không bao giờ đụng tới:** `src/`, `specs/`, constitution của Spec Kit mà team đã viết, worktree, branch, lịch sử commit.
 - **`--speckit`** (chỉ khi `fe-setup` đã cài Spec Kit): chạy lệnh gỡ của Spec Kit, rồi xoá đúng các file mà `specify init` đã tạo và chưa bị sửa. Danh sách file này được ghi vào manifest lúc cài.
 - **Safety check:** cuối lệnh, mọi path đã đổi được đối chiếu với manifest. Có path ngoài manifest thì lệnh thoát mã 2.
+- **Git hook của pilothify:** chỉ gỡ hook do `fe git-hooks install` cài trong clone này (theo bản ghi trong agent zone), hook do người khác cài thì giữ. Clone khác tự chạy `fe git-hooks uninstall`.
 
 ```text
 /fe-delivery:fe-uninstall                          # xem trước rồi hướng dẫn từng bước
@@ -94,8 +119,8 @@ Chạy bước apply bằng tiền tố `!` hoặc trong terminal, vì sandbox c
 
 ```bash
 npm run check          # kiểm cú pháp
-npm test               # unit + test đầu-cuối cho hook (không cần mạng)
-npm run test:contract  # contract với pilothify / Spec Kit đã cài; tool chưa cài thì skip
+npm test               # unit + test đầu-cuối cho hook (không cần mạng; pilothify là test double trong tests/fixtures/bin)
+npm run test:contract  # contract với pilothify / Spec Kit đã cài; tool chưa cài (hoặc pilothify < 0.1.6 cho P9–P12) thì skip
 claude plugin validate .
 ```
 

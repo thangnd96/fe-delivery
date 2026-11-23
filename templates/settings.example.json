@@ -1,4 +1,7 @@
 {
+  "env": {
+    "PILOTHIFY_REBUILD_LOG": "pilothify-out/rebuild.log"
+  },
   "permissions": {
     "allow": [
       "mcp__atlassian__get*",
@@ -28,6 +31,7 @@
       "Bash(pilothify god-nodes *)",
       "Bash(pilothify update .)",
       "Bash(pilothify save-result *)",
+      "Bash(pilothify hook status)",
       "Bash(specify version)",
       "Bash(specify self check)",
       "Bash(specify integration status)",

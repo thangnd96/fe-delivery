@@ -1,15 +1,18 @@
 import { execFileSync, spawnSync } from 'node:child_process';
 import { cpSync, mkdtempSync, readFileSync, realpathSync, writeFileSync, mkdirSync } from 'node:fs';
 import { tmpdir } from 'node:os';
-import { dirname, join, resolve } from 'node:path';
+import { delimiter, dirname, join, resolve } from 'node:path';
 import { fileURLToPath } from 'node:url';
 
 export const PLUGIN_ROOT = resolve(dirname(fileURLToPath(import.meta.url)), '..');
 export const FE = join(PLUGIN_ROOT, 'scripts', 'fe.mjs');
 export const HOOK = join(PLUGIN_ROOT, 'scripts', 'hook.mjs');
 export const FIXTURE = join(PLUGIN_ROOT, 'tests', 'fixtures', 'fe-app');
+// A pilothify test double (tests/fixtures/bin/pilothify) comes first on PATH, so unit
+// tests never run the real CLI. It logs each call to <base>/pilothify-calls.jsonl.
+export const STUB_BIN = join(PLUGIN_ROOT, 'tests', 'fixtures', 'bin');
 
-export function sandbox() {
+export function sandbox(extraEnv = {}) {
   const base = realpathSync(mkdtempSync(join(tmpdir(), 'fe-delivery-test-')));
   const home = join(base, 'home');
   const repo = join(base, 'repo');
@@ -22,11 +25,33 @@ export function sandbox() {
   g('commit', '-qm', 'fixture');
   const env = {
     ...process.env,
+    PATH: `${STUB_BIN}${delimiter}${process.env.PATH || ''}`,
     FE_DELIVERY_HOME: home,
     CLAUDE_PLUGIN_ROOT: PLUGIN_ROOT,
     FE_DELIVERY_NO_REFRESH: '1',
+    FE_STUB_PILOTHIFY_LOG: join(base, 'pilothify-calls.jsonl'),
+    FE_GRAPH_REFRESH_DELAY_MS: '0',
+    ...extraEnv,
   };
   return { base, home, repo, env };
+}
+
+// Calls the pilothify test double received, oldest first: [{argv, cwd, at, backend}].
+export function stubCalls(sb) {
+  try {
+    return readFileSync(sb.env.FE_STUB_PILOTHIFY_LOG, 'utf8').split('\n').filter(Boolean).map((l) => JSON.parse(l));
+  } catch {
+    return [];
+  }
+}
+
+export async function waitFor(predicate, timeoutMs = 8000, stepMs = 50) {
+  const deadline = Date.now() + timeoutMs;
+  while (Date.now() < deadline) {
+    if (predicate()) return true;
+    await new Promise((r) => setTimeout(r, stepMs));
+  }
+  return predicate();
 }
 
 export function hook(sb, event, input) {

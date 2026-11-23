@@ -88,6 +88,7 @@ export const agentFiles = (key, runId) => {
     classification: join(dir, 'classification.json'),
     claims: join(dir, 'claims.json'),
     report: join(dir, 'report.md'),
+    graph: join(dir, 'graph-log.json'),
   };
 };
 
