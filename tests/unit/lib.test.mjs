@@ -38,6 +38,18 @@ test('semver: compare and ranges', () => {
   assert.ok(!satisfies('garbage', '>=1.0.0'));
 });
 
+test('the profile template pins the Spec Kit and pilothify that fe-setup installs', () => {
+  // fe-setup installs compat's tested versions, then drafts the profile from this template;
+  // a template pin behind compat makes a new repo look outdated on its first session.
+  const profile = JSON.parse(readFileSync(join(PLUGIN_ROOT, 'templates', 'profile.example.json'), 'utf8'));
+  const compat = JSON.parse(readFileSync(join(PLUGIN_ROOT, 'compat', 'speckit.json'), 'utf8'));
+  assert.equal(profile.versions.speckit, compat.speckit.tested);
+  assert.equal(profile.versions.pilothify, compat.pilothify.tested);
+  assert.ok(compat.speckit.install.endsWith(`specify-cli==${compat.speckit.tested}`), compat.speckit.install);
+  assert.ok(compat.pilothify.install.endsWith(`@v${compat.pilothify.tested}"`), compat.pilothify.install);
+  assert.ok(satisfies(compat.pilothify.tested, `>=${compat.pilothify.min}`));
+});
+
 test('schemas are well-formed and accept the documented examples', () => {
   const profile = JSON.parse(readFileSync(join(PLUGIN_ROOT, 'templates', 'profile.example.json'), 'utf8'));
   assert.deepEqual(validate(loadSchema('profile'), profile), []);

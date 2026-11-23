@@ -51,7 +51,8 @@ jobs:
           LATEST: ${{ steps.v.outputs.latest }}
         run: |
           uv tool install "specify-cli==${LATEST}"
-          uv tool install "pilothify[leiden,mcp,sql] @ git+https://github.com/thangnd96/pilothify@v0.1.5"
+          pilothify_tested=$(node -p 'require("./compat/speckit.json").pilothify.tested')
+          uv tool install "pilothify[leiden,mcp,sql] @ git+https://github.com/thangnd96/pilothify@v${pilothify_tested}"
           specify version
           pilothify --version
 
@@ -97,6 +98,12 @@ jobs:
             d.speckit.range = `>=${v} <${maj}.${min + 1}.0`;
             d.speckit.install = `uv tool install specify-cli==${v}`;
             fs.writeFileSync(p, JSON.stringify(d, null, 2) + "\n");
+            // fe-setup drafts the profile of a new repo from this template, so it pins what compat tests.
+            const t = "templates/profile.example.json";
+            const s = fs.readFileSync(t, "utf8");
+            const next = s.replace(/("versions":\s*\{[^}]*"speckit":\s*")[^"]*"/, `$1${v}"`);
+            if (next === s) throw new Error(`versions.speckit not found in ${t}`);
+            fs.writeFileSync(t, next);
           '
           git -c user.email=ci@example.invalid -c user.name=speckit-update commit -am "chore(speckit): test v${LATEST}"
           git push -u origin "$branch"

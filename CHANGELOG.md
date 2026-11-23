@@ -1,5 +1,15 @@
 # Changelog
 
+## v0.4.1 — 2026-11-23
+
+Repo cài mới nhận pilothify 0.1.7 và Spec Kit 1.4.2.
+
+- **pilothify 0.1.7:** `fe-setup` cài pilothify từ tag `v0.1.7` (`compat/speckit.json` → `pilothify.tested`, `pilothify.install`). Bản này dùng cache AST cho file JS/TS. Trên repo front-end 3.440 file, rebuild toàn bộ khi cache đã ấm giảm từ 15,5 s xuống 9 s nếu chạy tuần tự như trong sandbox của Claude Code; graph không đổi. Mức tối thiểu vẫn là 0.1.6, nên repo đang dùng 0.1.6 không bị nhắc nâng cấp.
+- **Spec Kit 1.4.2** (PR #1, từ workflow `speckit-update`): `speckit.tested` 1.4.2, range `>=1.4.2 <1.5.0`, cài `specify-cli==1.4.2`. Repo đang pin 1.4.0 sẽ thấy hai thông báo ở đầu phiên: Spec Kit đã cài nằm ngoài range, và nên chạy `/fe-delivery:speckit-upgrade`. Đây chỉ là thông báo, không lệnh nào bị chặn.
+- **Template profile pin đúng phiên bản mà `fe-setup` cài:** `templates/profile.example.json` vẫn ghi Spec Kit 1.4.0 và pilothify 0.1.6, nên repo vừa setup đã bị nhắc là cũ. Nay template ghi 1.4.2 và 0.1.7. Một test unit mới so template với `compat`, và workflow `speckit-update` nâng luôn `versions.speckit` của template.
+- **Workflow `speckit-update` chạy contract với pilothify đang pin:** trước đây workflow cài cứng `v0.1.5`, nên P9–P12 bị skip. Nay cài theo `compat/speckit.json` → `pilothify.tested`.
+- **Test:** 69 test unit (thêm 1, đỏ trên 0.4.0); contract 10/10 với Spec Kit 1.4.2 và pilothify 0.1.7.
+
 ## v0.4.0 — 2026-11-23
 
 Graph phải được query trước khi đọc code, và phải luôn khớp code. Bản này cần pilothify 0.1.6 (`update --full`, `hook install --no-merge-driver`, sửa lỗi bản tăng dần để lại stub khi import qua barrel). Chạy với 0.1.5 vẫn được, nhưng đầu phiên sẽ nhắc nâng cấp.
