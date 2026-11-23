@@ -1,6 +1,54 @@
 // Deterministic delivery report built from the run ledger (ARCHITECTURE §11).
+import { graphFreshness, short } from './freshness.mjs';
+import { enforceLevel } from './pilothify.mjs';
 import { endConditions, gatesFor, stopAfter } from './run.mjs';
 import { readEvents } from './state.mjs';
+
+// The run's graph use: refreshes (from the fe CLI), queries and early searches (seen by the
+// PreToolUse hook), the intake's own query list, and whether the graph matches the tree now.
+export function graphSummary(ctx, r, events = readEvents(ctx.key, r.runId)) {
+  const refreshes = r.graph?.refreshes || [];
+  const count = (pred) => refreshes.filter(pred).length;
+  const queries = Array.isArray(r.intake?.codebase?.queries) ? r.intake.codebase.queries : [];
+  const byExit = { 0: 0, 3: 0, 4: 0 };
+  for (const q of queries) if (q.exit_code in byExit) byExit[q.exit_code] += 1;
+  const f = graphFreshness(ctx.key, ctx.root);
+  return {
+    enforce: enforceLevel(ctx.profile),
+    refreshes: refreshes.length,
+    full: count((x) => x.ok && x.mode === 'full'),
+    incremental: count((x) => x.ok && x.mode === 'incremental'),
+    unchanged: count((x) => x.ok && x.mode === 'unchanged'),
+    failed: count((x) => !x.ok),
+    last: refreshes[refreshes.length - 1] || null,
+    fresh: f.fresh,
+    reason: f.reason,
+    head: f.current.head,
+    dirty_paths: f.current.dirty_paths,
+    intake_queries: queries.length,
+    intake_by_exit: byExit,
+    grep_fallbacks: queries.filter((q) => q.fallback).length,
+    queries_seen: events.filter((e) => e.type === 'graph-query').length,
+    searches_before_query: events.filter((e) => e.type === 'graph-first-skip').length,
+    warnings: (r.graph?.warnings || []).map((w) => `${w.checkpoint}: ${w.message}`),
+  };
+}
+
+function graphLines(g) {
+  const out = [];
+  if (g.enforce === 'off') {
+    out.push('- graph.enforce = off: fe-delivery did not refresh or check the graph in this run.');
+    return out;
+  }
+  out.push(`- Refreshes: ${g.refreshes} (full ${g.full}, incremental ${g.incremental}, unchanged ${g.unchanged}, failed ${g.failed})${g.last ? `; last: ${g.last.checkpoint} at ${g.last.at}` : ''}`);
+  const tree = `HEAD ${short(g.head)}${g.dirty_paths ? ` + ${g.dirty_paths} uncommitted path(s)` : ''}`;
+  out.push(`- Graph vs working tree: ${g.fresh ? `fresh (${tree})` : `STALE (${g.reason}; ${tree})`}`);
+  out.push(`- Intake queries: ${g.intake_queries} (exit 0: ${g.intake_by_exit[0]}, exit 3: ${g.intake_by_exit[3]}, exit 4: ${g.intake_by_exit[4]}); grep fallback: ${g.grep_fallbacks ? `yes (${g.grep_fallbacks})` : 'no'}`);
+  out.push(`- Queries run in this run (seen by hooks): ${g.queries_seen}${g.searches_before_query ? `; intake searches before any query: ${g.searches_before_query}` : ''}`);
+  for (const w of g.warnings) out.push(`- Warning: ${w}`);
+  out.push(`- graph.enforce: ${g.enforce}`);
+  return out;
+}
 
 function table(headers, rows) {
   if (rows.length === 0) return '_none_\n';
@@ -69,6 +117,8 @@ export function buildReport(ctx, r) {
   out.push(`- Open questions: ${openQ.join(' · ') || 'none'}`);
   out.push(`- Conflicts: ${(intake.conflicts || []).map((x) => `${x.material ? '[material] ' : ''}${x.description}`).join(' · ') || 'none'}`);
   out.push(`- Instructions found in sources and NOT followed: ${(intake.instructions_found_not_followed || []).map((x) => `${x.source}: "${x.excerpt}"`).join(' · ') || 'none'}`);
+  out.push('', '## Graph');
+  out.push(...graphLines(graphSummary(ctx, r, events)));
   out.push('', '## Guard events');
   out.push(denies.length ? denies.map((d) => `- ${d.at} ${d.reason}`).join('\n') : '_none_');
   out.push('', '## External writes');

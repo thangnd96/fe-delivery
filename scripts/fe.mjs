@@ -9,16 +9,20 @@ import { budgetExceeded } from './lib/diff.mjs';
 import { gateMarker, GATE_IDS, maxTier, requiredGates, tierRank } from './lib/gates.mjs';
 import { commonDir, head, toplevel } from './lib/git.mjs';
 import { riskCategories } from './lib/glob.mjs';
-import { blastRadius, graphPath, loadGraph } from './lib/graph.mjs';
+import { blastRadius, loadGraph } from './lib/graph.mjs';
+import { graphFreshness, graphFile, lockHolder, readStamp, short } from './lib/freshness.mjs';
 import {
   activeRunsFor, applyUninstall, ignoredBy, install, legacyWorktreeLine, legacyWorktreeNotice, MANIFEST, planUninstall, readManifest,
 } from './lib/install.mjs';
 import { atlassianReminder, atlassianV1InProject } from './lib/mcp.mjs';
 import { feCliPath, repoKey, zones } from './lib/paths.mjs';
-import { buildReport } from './lib/report.mjs';
+import {
+  describeGitHooks, describeRefresh, enforceLevel, ensureGraph, gitHooksState, installGitHooks, recordGraphWarnings, uninstallGitHooks,
+} from './lib/pilothify.mjs';
+import { buildReport, graphSummary } from './lib/report.mjs';
 import { applyRunProfile, endConditions, gatesFor, loadRun, stopAfter } from './lib/run.mjs';
 import { validateNamed } from './lib/schema.mjs';
-import { agentFiles, exists, readJson, writeJson } from './lib/state.mjs';
+import { agentFiles, readEvents, readJson, writeJson } from './lib/state.mjs';
 import { trailer } from './lib/trailers.mjs';
 
 const HELP = `fe — fe-delivery CLI
@@ -31,7 +35,9 @@ const HELP = `fe — fe-delivery CLI
   verify [--levels L0,L1]
   evidence add --level L2|L3 --kind ui_smoke|visual_compare --status pass|fail|not_verified|not_run [--reason "..."] [--viewport name] [--artifact path]...
   report
-  graph ensure
+  graph ensure [--full]
+  graph status [--json]
+  git-hooks install|uninstall|status
   profile check
   doctor
   install --profile <file.json|-> [--speckit-installed-by-setup]
@@ -116,6 +122,18 @@ function runStart(o) {
   console.log(`Run ${runId} created for ${keys.join(', ') || 'direct request'} in ${ctx.root}`);
   const shadow = run.stop_after === 'plan' || ctx.profile.rollout?.mode === 'shadow';
   if (shadow) console.log('Shadow run: it stops after planning (no product-source edits, no implementation skills).');
+  // A full rebuild at the start of every run clears whatever incremental updates left behind,
+  // and puts the checked-out branch (whatever happened since the last run) in the graph.
+  const enforce = enforceLevel(ctx.profile);
+  if (enforce !== 'off') {
+    const rec = ensureGraph(ctx, { mode: 'full', checkpoint: 'run start', runId });
+    console.log(describeRefresh(rec));
+    if (!rec.ok) {
+      console.log(enforce === 'block'
+        ? 'graph: graph.enforce is "block", so `fe intake save` refuses until `fe graph ensure` succeeds.'
+        : 'warning: the run continues without a fresh graph; fix pilothify (`fe doctor`) and run `fe graph ensure`.');
+    }
+  }
   console.log('Next: run the fe-intake subagent, then `fe intake save`, then `fe classify`.');
   console.log(trailer('RUN_STARTED', { run_id: runId, worktree: ctx.root, ...(run.stop_after ? { stop_after: run.stop_after } : {}) }));
 }
@@ -145,6 +163,7 @@ function status(ctx, r) {
     evidence: r.evidence.map((e) => `${e.kind}:${e.status}@${e.finished_at}`),
     claims: r.claims.map((x) => `${x.level}/${x.kind}:${x.status}@${x.at}`),
     end_conditions_missing: remaining,
+    graph: graphSummary(ctx, r),
   };
 }
 
@@ -158,9 +177,20 @@ function runStatus(o) {
   }
 }
 
+// Checkpoints refresh the graph only when HEAD or the working tree moved since the last refresh
+// (a matching stamp costs no pilothify call). They print a line when they did something.
+function checkpointRefresh(ctx, checkpoint, runId = ctx.activeRunId) {
+  if (enforceLevel(ctx.profile) === 'off') return null;
+  const rec = ensureGraph(ctx, { mode: 'auto', checkpoint, runId });
+  if (!rec.ok || rec.mode !== 'unchanged' || rec.waited_ms) console.log(describeRefresh(rec));
+  return rec;
+}
+
 function runEnd() {
   const ctx = ctxOrFail();
   const r = runOrFail(ctx);
+  // The next task starts from a graph that matches this working tree.
+  checkpointRefresh(ctx, 'run end', r.runId);
   const missing = endConditions(ctx, r);
   if (missing.length) console.log(`Not ready to end; missing:\n- ${missing.join('\n- ')}`);
   else console.log(`Requesting end of run ${r.runId}.`);
@@ -168,6 +198,32 @@ function runEnd() {
 }
 
 // ---------------- intake / classify ----------------
+// The graph step of an intake: a refreshed graph, queries recorded with their exit codes, a grep
+// fallback for every query that exited 4, and queries the hooks actually saw run.
+function intakeGraphProblems(ctx, r, data, rec) {
+  const problems = [];
+  if (rec && !rec.ok) problems.push(`the graph could not be refreshed: ${rec.error}`);
+  if (!(r.graph?.refreshes || []).some((x) => x.ok)) {
+    problems.push('this run has no successful graph refresh (`fe run start` does one; otherwise run `fe graph ensure`)');
+  }
+  const queries = Array.isArray(data.codebase?.queries) ? data.codebase.queries : [];
+  if (!queries.length) {
+    problems.push('codebase.queries is empty: query the graph before reading code (`pilothify query "<CodeIdentifiers>" --budget 2000`, `pilothify explain "<Name>"`) and record each query with its exit code');
+  }
+  for (const q of queries) {
+    if (q.exit_code === 4 && !q.fallback) {
+      problems.push(`query "${q.question}" exited 4 but no grep fallback is recorded; add "fallback": {"tool": "grep", "pattern": "..."} to that query`);
+    }
+  }
+  if (queries.length && r.state) {
+    const seen = readEvents(ctx.key, r.runId).filter((e) => e.type === 'graph-query').length;
+    if (!seen) {
+      problems.push(`the intake lists ${queries.length} graph ${queries.length === 1 ? 'query' : 'queries'}, but no pilothify query was run in this run (the hooks saw none)`);
+    }
+  }
+  return problems;
+}
+
 function intakeSave(o) {
   const ctx = ctxOrFail();
   const r = runOrFail(ctx);
@@ -175,6 +231,16 @@ function intakeSave(o) {
   data.run_id = r.runId;
   const errors = validateNamed('intake', data);
   if (errors.length) fail(`intake does not match intake.schema.json:\n- ${errors.join('\n- ')}`);
+  const enforce = enforceLevel(ctx.profile);
+  if (enforce !== 'off') {
+    const rec = checkpointRefresh(ctx, 'intake', r.runId);
+    const problems = intakeGraphProblems(ctx, loadRun(ctx, r.runId), data, rec);
+    if (problems.length && enforce === 'block') {
+      fail(`intake not saved (graph.enforce = block); query the graph first, then grep only after a query exits 4:\n- ${problems.join('\n- ')}`);
+    }
+    for (const p of problems) console.log(`warning: ${p}`);
+    recordGraphWarnings(ctx.key, r.runId, 'intake', problems);
+  }
   writeJson(r.a.intake, data);
   const blocking = (data.open_questions || []).filter((q) => q.blocking).length;
   console.log(`Intake saved (${data.requirements.length} requirements, ${blocking} blocking questions, ${data.instructions_found_not_followed.length} instructions ignored).`);
@@ -203,6 +269,16 @@ function classify(o) {
       flags.set(category, f);
     }
   }
+  const previous = r.classification;
+  const checkpoint = typeof o.checkpoint === 'string' ? o.checkpoint : previous ? 'C2' : 'C1';
+  const enforce = enforceLevel(ctx.profile);
+  if (enforce === 'block' && !r.intake) {
+    fail('save the intake first (`fe intake save`): with graph.enforce = block a run is classified only after an intake that queried the graph');
+  }
+  // The blast radius reads the graph: wait for a running rebuild, and bring the graph up to the
+  // working tree (at C3 that includes the code written so far).
+  const rec = checkpointRefresh(ctx, checkpoint, r.runId);
+  if (rec && !rec.ok) recordGraphWarnings(ctx.key, r.runId, checkpoint, [`blast radius read a graph that could not be refreshed: ${rec.error}`]);
   let blast = null;
   const br = ctx.profile.risk?.blast_radius;
   const graph = br ? loadGraph(ctx.root) : null;
@@ -229,8 +305,6 @@ function classify(o) {
     tier = override.requested_tier;
     override.below_floor = tierRank(tier) < tierRank(floor);
   }
-  const previous = r.classification;
-  const checkpoint = typeof o.checkpoint === 'string' ? o.checkpoint : previous ? 'C2' : 'C1';
   const record = {
     run_id: r.runId,
     task_type: input.task_type || 'feature',
@@ -250,6 +324,9 @@ function classify(o) {
     blast.graph_built_at_commit = blast.graph_built_at_commit || null;
     record.blast_radius = blast;
   }
+  record.graph = rec
+    ? { refresh: rec.mode, fresh: Boolean(rec.ok), head: rec.head || null }
+    : { refresh: 'off', fresh: null, head: null };
   if (override) record.override = override;
   const errors = validateNamed('classification', record);
   if (errors.length) fail(`classification does not match classification.schema.json:\n- ${errors.join('\n- ')}`);
@@ -257,7 +334,7 @@ function classify(o) {
   const gates = requiredGates({ tier, flags: record.risk_flags.map((f) => f.category), belowFloor: Boolean(override?.below_floor) });
   console.log(`Tier ${tier} (model ${modelTier}, floor ${floor}). Flags: ${record.risk_flags.map((f) => f.category).join(', ') || 'none'}.`);
   console.log(`Gates required: ${gates.join(', ') || 'none'}. Blocking questions: ${record.blocking_questions.length}.`);
-  if (!graph && br) console.log(`No pilothify graph at ${graphPath(ctx.root)}; blast radius not computed (run \`fe graph ensure\`).`);
+  if (!graph && br) console.log(`No pilothify graph at ${graphFile(ctx.root)}; blast radius not computed (run \`fe graph ensure\`).`);
 }
 
 // ---------------- gates ----------------
@@ -285,6 +362,8 @@ function gateQuestion(o) {
 function verify(o) {
   const ctx = ctxOrFail();
   const r = runOrFail(ctx);
+  // The graph takes in the code written so far, for the fe-reviewer's `pilothify affected`.
+  checkpointRefresh(ctx, 'verify', r.runId);
   const levels = list(o.levels).length ? list(o.levels) : ['L0', 'L1'];
   const checks = ctx.profile.checks || {};
   const plan = [];
@@ -345,17 +424,71 @@ function report() {
   console.log(md);
 }
 
-function graphEnsure() {
+// `fe graph ensure` always runs pilothify (about 1 s when nothing changed): `update`, or with
+// --full the update pipeline over the whole corpus. It waits for a running rebuild first, and a
+// refused or failed write exits non-zero.
+function graphEnsure(o) {
   const ctx = ctxOrFail();
-  const env = { ...process.env, PILOTHIFY_BACKEND: 'none' };
-  const hasGraph = exists(graphPath(ctx.root));
-  const cmd = hasGraph ? ['update', '.'] : ['extract', '.', '--code-only'];
-  const res = spawnSync('pilothify', cmd, { cwd: ctx.root, env, encoding: 'utf8' });
-  if (res.error) fail(`pilothify not available (${res.error.code}). Install: see compat/speckit.json`);
-  const g = loadGraph(ctx.root);
-  const at = g?.built_at_commit || null;
-  console.log(`pilothify ${cmd.join(' ')} → exit ${res.status}; built_at_commit ${at || '?'}; HEAD ${head(ctx.root)}`);
-  if (res.status !== 0) console.log((res.stderr || res.stdout || '').split('\n').slice(-20).join('\n'));
+  const rec = ensureGraph(ctx, { mode: o.full ? 'full' : 'incremental', checkpoint: o.full ? 'graph ensure --full' : 'graph ensure' });
+  if (!rec.ok) fail(describeRefresh(rec).replace(/^graph: /, ''));
+  console.log(describeRefresh(rec));
+}
+
+function graphStatusData(ctx) {
+  const f = graphFreshness(ctx.key, ctx.root);
+  const holder = lockHolder(ctx.root);
+  const hooks = gitHooksState(ctx);
+  return {
+    root: ctx.root,
+    graph_exists: f.graph,
+    graph_file: graphFile(ctx.root),
+    fresh: f.fresh,
+    reason: f.reason,
+    head: f.current.head,
+    fingerprint: f.current.fingerprint,
+    dirty_paths: f.current.dirty_paths,
+    stamp: readStamp(ctx.key, ctx.root),
+    lock: holder ? { held: true, pid: holder.pid } : { held: false, pid: null },
+    linked_worktree: hooks.linked_worktree,
+    git_hooks: { installed: hooks.installed, partial: hooks.partial, managed_by_fe: hooks.managed, dir: hooks.dir, wanted: hooks.wanted },
+    enforce: enforceLevel(ctx.profile),
+  };
+}
+
+function graphStatus(o) {
+  const ctx = ctxOrFail();
+  const s = graphStatusData(ctx);
+  if (o.json) {
+    console.log(JSON.stringify(s, null, 2));
+    return;
+  }
+  console.log(`graph: ${!s.graph_exists ? 'missing' : s.fresh ? 'fresh' : `stale (${s.reason})`}`);
+  console.log(`working tree: HEAD ${short(s.head)}${s.dirty_paths ? ` + ${s.dirty_paths} uncommitted path(s)` : ''}`);
+  if (s.stamp) console.log(`last refresh by fe: ${s.stamp.mode} at ${s.stamp.at} (HEAD ${short(s.stamp.head)}, ${s.stamp.nodes ?? '?'} nodes, ${s.stamp.edges ?? '?'} edges)`);
+  console.log(`graph lock: ${s.lock.held ? `held by pid ${s.lock.pid ?? '?'} (a rebuild is running)` : 'free'}`);
+  console.log(`pilothify git hooks: ${describeGitHooks(gitHooksState(ctx))}`);
+  console.log(`graph.enforce: ${s.enforce}`);
+}
+
+// pilothify's git hooks live in this clone's hooks directory, not in the repository, so every
+// clone installs them. fe-delivery records the install and only ever removes its own.
+function gitHooks(o) {
+  const ctx = ctxOrFail();
+  const sub = o._[1];
+  if (sub === 'install') {
+    const res = installGitHooks(ctx);
+    if (!res.ok) fail(res.message);
+    if (res.output) console.log(res.output);
+    console.log(res.message);
+  } else if (sub === 'uninstall') {
+    const res = uninstallGitHooks(ctx);
+    if (!res.ok) fail(res.message);
+    console.log(res.message);
+  } else if (sub === 'status') {
+    console.log(`pilothify git hooks: ${describeGitHooks(gitHooksState(ctx))}`);
+  } else {
+    fail('usage: git-hooks install|uninstall|status');
+  }
 }
 
 function profileCheck() {
@@ -396,8 +529,17 @@ function doctor() {
   if (atlassianV1InProject(ctx.root)) console.log(`note: ${atlassianReminder().replace(/^Reminder: /, '')}`);
   if (legacyWorktreeLine(ctx.root)) console.log(`note: ${legacyWorktreeNotice()}`);
   console.log(`rollout: ${ctx.profile?.rollout?.mode || 'full'}`);
-  const g = loadGraph(ctx.root);
-  console.log(`graph: ${g ? `built_at_commit ${g.built_at_commit} (HEAD ${head(ctx.root)})` : 'missing'}`);
+  const s = graphStatusData(ctx);
+  console.log(`graph: ${!s.graph_exists ? 'missing (fe graph ensure)' : s.fresh ? `fresh (HEAD ${short(s.head)})` : `stale (${s.reason}; fe graph ensure)`}`);
+  console.log(`graph lock: ${s.lock.held ? `held by pid ${s.lock.pid ?? '?'}` : 'free'}`);
+  console.log(`graph.enforce: ${s.enforce}`);
+  console.log(`pilothify git hooks: ${describeGitHooks(gitHooksState(ctx))}`);
+  if (!s.git_hooks.installed && !s.git_hooks.partial && s.git_hooks.wanted) {
+    console.log(`  install them in this clone (outside the sandbox): ! node "${feCliPath()}" git-hooks install`);
+  }
+  if (settings && !settings.env?.PILOTHIFY_REBUILD_LOG) {
+    console.log('note: .claude/settings.json sets no env.PILOTHIFY_REBUILD_LOG; hook rebuilds started from Claude Code log to ~/.cache (pilothify 0.1.6 falls back to pilothify-out/rebuild.log when that is not writable)');
+  }
   console.log(`active run: ${ctx.activeRunId || 'none'}`);
 }
 
@@ -454,19 +596,30 @@ function uninstallCmd(o) {
   const dirty = paths.length ? git(root, ['diff', '--name-only', 'HEAD', '--', ...paths]).split('\n').filter(Boolean) : [];
   const plan = planUninstall(root, manifest);
   const machine = [zones.agent(key), zones.hook(key)];
+  // pilothify's git hooks are per clone: only those fe-delivery installed in this clone go.
+  const hookCtx = { root, key, profile: null };
+  const hooks = gitHooksState(hookCtx);
+  const gitHooksStep = hooks.managed
+    ? { action: 'remove-hooks', dir: hooks.dir, why: 'pilothify git hooks installed by fe-delivery in this clone (pilothify hook uninstall --no-merge-driver)' }
+    : null;
 
   if (o['dry-run']) {
     if (o.json) {
-      console.log(JSON.stringify({ root, installed_version: manifest.fe_delivery_version, active_runs: runs, uncommitted_manifest_paths: dirty, ...plan, machine_state: machine }, null, 2));
+      console.log(JSON.stringify({
+        root, installed_version: manifest.fe_delivery_version, active_runs: runs, uncommitted_manifest_paths: dirty, ...plan, git_hooks: gitHooksStep, machine_state: machine,
+      }, null, 2));
       return;
     }
     console.log(`fe-delivery ${manifest.fe_delivery_version} installed ${manifest.installed_at} in ${root}\n`);
     console.log('Plan (only these paths change):');
     for (const s of plan.steps) console.log(`  ${s.action.padEnd(15)} ${s.path} — ${s.why}`);
+    if (gitHooksStep) console.log(`  ${gitHooksStep.action.padEnd(15)} ${gitHooksStep.dir} — ${gitHooksStep.why}`);
+    else if (hooks.any) console.log(`  ${'keep'.padEnd(15)} ${hooks.dir} — pilothify git hooks not installed by fe-delivery`);
     console.log('\nNever touched:');
     for (const u of plan.untouched) console.log(`  - ${u}`);
     for (const opt of plan.optional) console.log(`\nOptional ${opt.flag}: ${opt.why} → ${opt.commands.join(' ; ')}`);
     console.log(`\nMachine state for this repository (removed with --machine-state):\n  ${machine.join('\n  ')}`);
+    console.log('Other clones: each one that ran `fe git-hooks install` runs `fe git-hooks uninstall` (or `pilothify hook uninstall --no-merge-driver`) itself.');
     if (runs.length) console.log(`\nBLOCKER: active runs in ${runs.map(([w]) => w).join(', ')} (finish them with \`fe run end\`, or pass --force-runs; worktrees are never deleted).`);
     if (dirty.length) console.log(`\nBLOCKER: uncommitted changes in ${dirty.join(', ')} (commit or stash them, or pass --allow-dirty).`);
     return;
@@ -476,6 +629,10 @@ function uninstallCmd(o) {
 
   const { report, violations } = applyUninstall(root, manifest, { speckit: o.speckit === true });
   for (const line of report) console.log(line);
+  if (gitHooksStep) {
+    const res = uninstallGitHooks(hookCtx);
+    console.log(`git hooks: ${res.message}`);
+  }
   if (o['machine-state']) {
     for (const dir of machine) {
       try {
@@ -510,6 +667,8 @@ switch (true) {
   case cmd === 'evidence add': evidenceAdd(o); break;
   case a0 === 'report': report(o); break;
   case cmd === 'graph ensure': graphEnsure(o); break;
+  case cmd === 'graph status': graphStatus(o); break;
+  case a0 === 'git-hooks': gitHooks(o); break;
   case cmd === 'profile check': profileCheck(o); break;
   case a0 === 'doctor': doctor(o); break;
   case a0 === 'install': installCmd(o); break;

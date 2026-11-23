@@ -19,9 +19,13 @@
     }
   },
   "pilothify": {
-    "tested": "0.1.5",
-    "min": "0.1.5",
-    "install": "uv tool install \"pilothify[leiden,mcp,sql] @ git+https://github.com/thangnd96/pilothify@v0.1.5\""
+    "tested": "0.1.6",
+    "min": "0.1.6",
+    "install": "uv tool install \"pilothify[leiden,mcp,sql] @ git+https://github.com/thangnd96/pilothify@v0.1.6\"",
+    "features": {
+      "update --full": "0.1.6",
+      "hook install --no-merge-driver": "0.1.6"
+    }
   },
   "claude_code": {
     "min": "2.1.314",

@@ -93,6 +93,14 @@
         "mode": { "enum": ["shadow", "full"] }
       }
     },
+    "graph": {
+      "type": "object",
+      "description": "pilothify graph use. enforce: warn (default when absent) refreshes the graph at run start (full) and at the checkpoints (intake save, classify, verify, run end), and warns in the console and the report when the intake skipped the graph; block refuses `fe intake save` (and the fe-reviewer launch, and fe-intake searches before any graph query) instead; off neither refreshes nor checks. git_hooks: false when the team does not want pilothify's git hooks (default true: fe-setup installs them per clone).",
+      "properties": {
+        "enforce": { "enum": ["off", "warn", "block"] },
+        "git_hooks": { "type": "boolean" }
+      }
+    },
     "versions": {
       "type": "object",
       "properties": {

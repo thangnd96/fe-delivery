@@ -39,6 +39,7 @@
     "blast_radius": { "source": "pilothify", "edges": "EXTRACTED", "depth": 2, "affected_threshold": 15, "cross_package": true }
   },
   "rollout": { "mode": "full" },
-  "versions": { "speckit": "1.4.0", "pilothify": "0.1.5" },
+  "graph": { "enforce": "warn", "git_hooks": true },
+  "versions": { "speckit": "1.4.0", "pilothify": "0.1.6" },
   "data": { "commit_intake_summary": true }
 }

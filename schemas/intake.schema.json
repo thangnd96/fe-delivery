@@ -44,12 +44,26 @@
         "graph_built_at_commit": { "type": "string" },
         "queries": {
           "type": "array",
+          "description": "Every graph query the intake ran, in order. fe intake save refuses (graph.enforce = block) or warns when this is empty, or when a query that exited 4 has no fallback.",
           "items": {
             "type": "object",
+            "required": ["question", "exit_code"],
             "properties": {
-              "question": { "type": "string" },
+              "question": { "type": "string", "minLength": 1 },
+              "command": { "enum": ["query", "explain", "path", "affected"] },
               "exit_code": { "enum": [0, 3, 4] },
-              "nodes": { "type": "array", "items": { "type": "string" } }
+              "nodes": { "type": "array", "items": { "type": "string" } },
+              "fallback": {
+                "type": "object",
+                "description": "The bounded search run because this query exited 4 (no match).",
+                "required": ["tool", "pattern"],
+                "properties": {
+                  "tool": { "enum": ["grep", "rg", "find", "Grep", "Glob"] },
+                  "pattern": { "type": "string", "minLength": 1 },
+                  "paths": { "type": "array", "items": { "type": "string" } },
+                  "hits": { "type": "integer", "minimum": 0 }
+                }
+              }
             }
           }
         },

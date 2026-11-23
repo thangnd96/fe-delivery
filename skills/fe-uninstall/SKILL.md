@@ -15,6 +15,7 @@ Run `node "<plugin>/scripts/fe.mjs" uninstall --dry-run`, then show the user:
   - `remove-entries` / `remove-block`: only fe-delivery's parts are removed, your edits stay;
   - `delete`: the file was created by install;
   - `keep`: the file was edited, so it is left in place;
+- `remove-hooks`: the pilothify git hooks that `fe git-hooks install` put in this clone. They are removed with `pilothify hook uninstall --no-merge-driver`. Hooks fe-delivery did not install are listed as `keep` and stay;
 - the list of things that are never touched;
 - blockers:
   - **active runs:** finish them with `fe run end` first, or pass `--force-runs`. Worktrees are never deleted;
@@ -32,6 +33,7 @@ node "<plugin>/scripts/fe.mjs" uninstall [--speckit] [--machine-state]
 
 - `--machine-state` also deletes this repository's ledger under `~/.fe-delivery/`. Without it, past run reports stay available.
 - The command ends with a safety check. If anything outside the manifest changed, it fails with exit code 2 and lists the paths.
+- It also removes the pilothify git hooks fe-delivery installed in **this** clone, after the safety check (hooks in `.git/hooks` are not repository files). Every other clone that ran `fe git-hooks install` runs `node "<plugin>/scripts/fe.mjs" git-hooks uninstall`, or `pilothify hook uninstall --no-merge-driver` once the plugin is gone.
 
 ## 3. Verify and finish
 1. Run `git status` and `git diff --stat`. Only the recorded paths may appear.

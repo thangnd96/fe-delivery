@@ -170,6 +170,32 @@
         }
       }
     },
+    "graph": {
+      "type": "object",
+      "description": "The graph refresh this classification ran before reading the blast radius.",
+      "properties": {
+        "refresh": {
+          "enum": [
+            "full",
+            "incremental",
+            "unchanged",
+            "off"
+          ]
+        },
+        "fresh": {
+          "type": [
+            "boolean",
+            "null"
+          ]
+        },
+        "head": {
+          "type": [
+            "string",
+            "null"
+          ]
+        }
+      }
+    },
     "blocking_questions": {
       "type": "array",
       "items": {

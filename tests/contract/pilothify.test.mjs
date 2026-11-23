@@ -71,3 +71,52 @@ test('pilothify contracts P1–P8', { skip: available ? false : 'pilothify CLI n
   assert.equal(run(dir, ['update', '.']).status, 0);
   assert.equal(graphOf(dir).built_at_commit, head(dir), 'P8: update refreshes built_at_commit');
 });
+
+// v0.4.0 contracts P9–P12: what fe-delivery's graph lifecycle relies on (pilothify 0.1.6+).
+const version = (probe.stdout.match(/(\d+\.\d+\.\d+)/) || [])[1];
+const lifecycle = available && version && compare(version, '0.1.6') >= 0;
+const skipLifecycle = lifecycle ? false : `needs pilothify >= 0.1.6 (found ${version || 'none'})`;
+
+test('pilothify contracts P9–P11: update --full, hooks without merge driver, commit stamp', { skip: skipLifecycle }, () => {
+  const dir = fixtureRepo();
+  writeFileSync(join(dir, '.gitignore'), 'pilothify-out/\n');
+  execFileSync('git', ['add', '.gitignore'], { cwd: dir });
+  execFileSync('git', ['-c', 'user.email=t@example.invalid', '-c', 'user.name=t', 'commit', '-qm', 'ignore'], { cwd: dir, stdio: 'ignore' });
+  assert.equal(run(dir, ['extract', '.', '--code-only']).status, 0);
+  const full = run(dir, ['update', '.', '--full']);
+  assert.equal(full.status, 0, `P9: update --full exists: ${full.stderr}`);
+  const again = run(dir, ['update', '.', '--full']);
+  assert.equal(again.status, 0);
+  assert.match(again.stdout, /No relevant changes/, 'P9: --full after a full build of the same tree is a no-op');
+  const hooks = run(dir, ['hook', 'install', '--no-merge-driver']);
+  assert.equal(hooks.status, 0, `P10: ${hooks.stderr}`);
+  assert.match(hooks.stdout, /merge driver: skipped/);
+  assert.throws(() => readFileSync(join(dir, '.gitattributes')), 'P10: no .gitattributes line');
+  assert.match(run(dir, ['hook', 'status']).stdout, /post-checkout: installed/);
+  assert.equal(run(dir, ['hook', 'uninstall', '--no-merge-driver']).status, 0);
+  assert.match(run(dir, ['hook', 'status']).stdout, /post-checkout: not installed/);
+  assert.equal(run(dir, ['update', '.', '--no-cluster']).status, 0);
+  assert.equal(graphOf(dir).built_at_commit, head(dir), 'P11: --no-cluster stamps built_at_commit');
+});
+
+test('P12: through fe, a component added during a run is in the graph pilothify affected reads', { skip: skipLifecycle }, () => {
+  const dir = fixtureRepo();
+  const home = realpathSync(mkdtempSync(join(tmpdir(), 'fe-home-')));
+  const feEnv = { ...process.env, FE_DELIVERY_HOME: home, CLAUDE_PLUGIN_ROOT: PLUGIN_ROOT, FE_DELIVERY_NO_REFRESH: '1' };
+  const fe = (...a) => spawnSync(process.execPath, [join(PLUGIN_ROOT, 'scripts', 'fe.mjs'), ...a], { cwd: dir, env: feEnv, encoding: 'utf8' });
+  const ensure = fe('graph', 'ensure');
+  assert.equal(ensure.status, 0, ensure.stderr);
+  const full = fe('graph', 'ensure', '--full');
+  assert.equal(full.status, 0, full.stderr);
+  assert.match(full.stdout, /full refresh done \(pilothify update \. --full/);
+  writeFileSync(join(dir, 'src', 'components', 'Badge.tsx'), 'export function Badge() { return null; }\n');
+  const card = join(dir, 'src', 'features', 'profile', 'ProfileCard.tsx');
+  writeFileSync(card, `import { Badge } from '../../components/Badge';\n${readFileSync(card, 'utf8')}\nexport const WithBadge = () => Badge();\n`);
+  const status1 = JSON.parse(fe('graph', 'status', '--json').stdout);
+  assert.equal(status1.fresh, false, 'uncommitted edits make the graph stale');
+  assert.equal(fe('graph', 'ensure').status, 0);
+  assert.equal(JSON.parse(fe('graph', 'status', '--json').stdout).fresh, true);
+  const affected = run(dir, ['affected', 'Badge']);
+  assert.equal(affected.status, 0, affected.stderr);
+  assert.match(affected.stdout, /ProfileCard/);
+});

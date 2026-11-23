@@ -16,7 +16,23 @@ Output one JSON object that matches `schemas/intake.schema.json`. Required keys:
   8. `get_code_connect_map`.
 
   Record node ids, `last_modified`, tokens and Code Connect mappings. The output is a design reference, not final code.
-- **Codebase:** turn the request into code identifiers first, then run `pilothify query "<identifiers>" --budget 2000` and `pilothify explain "<Candidate>"` to list reuse candidates and similar features. Record each query and its exit code.
+- **Codebase, graph first:** turn the request into code identifiers first, then run `pilothify query "<identifiers>" --budget 2000` and `pilothify explain "<Candidate>"` to list reuse candidates and similar features.
+  - Record every query, in order, in `codebase.queries`: `question`, `command` (`query` | `explain` | `path` | `affected`), `exit_code` (0 answer, 3 ambiguous, 4 no match) and the `nodes` you used.
+  - Search with grep only for a query that exited 4. Keep it bounded, and record it on that query as its `fallback`.
+  - Until the run has a graph query, the hooks refuse (`block`) or flag (`warn`) `grep`, `rg`, `find`, Grep and Glob from fe-intake (`[G9]`).
+
+  ```json
+  "codebase": {
+    "queries": [
+      { "question": "ProfileCard Avatar", "command": "query", "exit_code": 0, "nodes": ["src_features_profile_profilecard"] },
+      { "question": "BadgeVariant", "command": "query", "exit_code": 4,
+        "fallback": { "tool": "grep", "pattern": "BadgeVariant", "paths": ["src/"], "hits": 0 } }
+    ],
+    "reuse_candidates": [{ "name": "Avatar", "source_file": "src/components/Avatar.tsx", "why": "same props" }]
+  }
+  ```
+
+  `fe intake save` checks this step: it warns, or refuses with `graph.enforce = block`, when `queries` is empty, when an exit-4 query has no `fallback`, or when the hooks saw no query run in this run.
 - **Separate what you found:**
   - `explicit` requirements — stated in Jira, Figma or by the user;
   - `inferred` details;

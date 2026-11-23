@@ -9,16 +9,23 @@
 //   G6 AskUserQuestion gate prompts must be well-formed and not pre-answered.
 //   G7 shadow runs (stop after planning): no product-source edits, no implementation skills.
 //   G8 guard configuration (profile, install manifest) cannot change during delivery work.
+//   G9 graph first: during a run, fe-intake searches (grep/rg/find, Grep, Glob) only after the
+//      run has a pilothify query; a query that exits 4 is what makes a bounded grep valid.
+//   G10 the fe-reviewer starts on a graph that matches the working tree (fe graph ensure).
 //   SA subagent scoping: fe-intake / fe-reviewer are read-only; fe-verifier cannot edit.
+// G9/G10 follow profile graph.enforce: block denies, warn adds context and records the event,
+// off does nothing. Every pilothify query/explain/path/affected during a run is recorded.
 import { normalizeAgentType, relToRoot } from '../lib/context.mjs';
 import { budgetExceeded } from '../lib/diff.mjs';
+import { graphFreshness } from '../lib/freshness.mjs';
 import { GATE_MARKER_RE } from '../lib/gates.mjs';
 import { riskCategories } from '../lib/glob.mjs';
-import { denyTool } from '../lib/io.mjs';
+import { addContext, denyTool } from '../lib/io.mjs';
 import { isArtifactPath, zones } from '../lib/paths.mjs';
+import { enforceLevel } from '../lib/pilothify.mjs';
 import { artifactExists, flagCategories, gatesFor, loadRun, stopAfter } from '../lib/run.mjs';
 import { programOf, simpleCommands } from '../lib/shell.mjs';
-import { appendEvent, readJson, sessionMarkerFile } from '../lib/state.mjs';
+import { appendEvent, readEvents, readJson, sessionMarkerFile } from '../lib/state.mjs';
 
 export const EDIT_TOOLS = new Set(['Edit', 'Write', 'MultiEdit', 'NotebookEdit']);
 const GUARD_CONFIG = new Set(['.fe-delivery/profile.json', '.fe-delivery/install-manifest.json']);
@@ -81,6 +88,73 @@ function readOnlyBashAllowed(command) {
     if (program === 'pilothify') return READ_ONLY_PILOTHIFY.has(args[0]);
     return false;
   });
+}
+
+// ---------- G9 / G10: the graph ----------
+const GRAPH_QUERY_SUBCOMMANDS = new Set(['query', 'explain', 'path', 'affected']);
+const SEARCH_PROGRAMS = new Set(['grep', 'egrep', 'fgrep', 'rg', 'ag', 'ack', 'find', 'fd']);
+
+// pilothify query/explain/path/affected calls in a Bash command (or the pilothify MCP server).
+export function graphQueries(tool, command) {
+  if (typeof tool === 'string' && tool.startsWith('mcp__') && /pilothify/i.test(tool)) {
+    const verb = tool.split('__').pop();
+    return /query|explain|path|affected|neighbo|shortest|node/i.test(verb) ? [verb] : [];
+  }
+  if (tool !== 'Bash') return [];
+  const found = [];
+  for (const simple of simpleCommands(stripHeredocs(command))) {
+    const { program, args } = programOf(simple);
+    if (program === 'pilothify' && GRAPH_QUERY_SUBCOMMANDS.has(args[0])) found.push(args[0]);
+  }
+  return found;
+}
+
+// A code search: the Grep/Glob tools, or grep/rg/find/... (and `git grep`) in Bash.
+export function isCodeSearch(tool, command) {
+  if (tool === 'Grep' || tool === 'Glob') return true;
+  if (tool !== 'Bash') return false;
+  return simpleCommands(stripHeredocs(command)).some((simple) => {
+    const { program, args } = programOf(simple);
+    return SEARCH_PROGRAMS.has(program) || (program === 'git' && args[0] === 'grep');
+  });
+}
+
+const G9_REASON = 'query the graph first: `pilothify query "<CodeIdentifiers>" --budget 2000` or `pilothify explain "<Name>"`; '
+  + 'grep only when a query returns exit 4 (no match), and record that grep as the query\'s fallback in the intake';
+
+// Records the graph queries of a call that the guard lets through.
+function recordGraphQueries(ctx, r, input, agent) {
+  const queries = graphQueries(input.tool_name, input.tool_input?.command);
+  if (queries.length) appendEvent(ctx.key, r.runId, { type: 'graph-query', agent: agent || 'main', via: input.tool_name, subcommands: queries });
+}
+
+function graphFirst(ctx, r, input, agent) {
+  const tool = input.tool_name;
+  const command = input.tool_input?.command;
+  if (agent !== 'fe-intake' || !isCodeSearch(tool, command)) return null;
+  // `pilothify query X || grep -rn X src` carries its own query.
+  if (graphQueries(tool, command).length || readEvents(ctx.key, r.runId).some((e) => e.type === 'graph-query')) return null;
+  const level = enforceLevel(ctx.profile);
+  if (level === 'off') return null;
+  if (level === 'block') return deny(ctx, r.runId, 'G9', G9_REASON);
+  appendEvent(ctx.key, r.runId, { type: 'graph-first-skip', agent, via: tool });
+  return addContext('PreToolUse', `fe-delivery [G9 warn]: ${G9_REASON}. This search ran before any graph query and is noted in the delivery report.`);
+}
+
+function subagentType(toolInput) {
+  return normalizeAgentType(toolInput?.subagent_type || toolInput?.agent_type || '');
+}
+
+function reviewerGraph(ctx, r, input) {
+  if (subagentType(input.tool_input) !== 'fe-reviewer') return null;
+  const level = enforceLevel(ctx.profile);
+  if (level === 'off') return null;
+  const f = graphFreshness(ctx.key, ctx.root);
+  if (f.fresh) return null;
+  const why = `the pilothify graph is stale (${f.reason}), so the reviewer's \`pilothify affected\` would miss the new code; run \`fe graph ensure\` first`;
+  if (level === 'block') return deny(ctx, r.runId, 'G10', why);
+  appendEvent(ctx.key, r.runId, { type: 'graph-stale-review', reason: f.reason });
+  return addContext('PreToolUse', `fe-delivery [G10 warn]: ${why.replace('the pilothify graph is stale', 'graph is stale')}.`);
 }
 
 // ---------- G6 ----------
@@ -196,11 +270,18 @@ export function onPreToolUse(input, ctx) {
     if (GUARD_CONFIG_RE.test(stripHeredocs(ti.command)) && !readOnlyBashAllowed(ti.command) && delivering()) {
       return deny(ctx, runId, 'G8', G8_BASH_REASON);
     }
+    const graph = r ? graphFirst(ctx, r, input, agent) : null;
+    if (denied(graph)) return graph;
     if (READ_ONLY_AGENTS.has(agent) && !readOnlyBashAllowed(ti.command)) {
       return deny(ctx, runId, 'SA', `${agent} is read-only; allowed: pilothify query/explain/path/affected/god-nodes, read-only git and file viewing`);
     }
-    return null;
+    if (r) recordGraphQueries(ctx, r, input, agent);
+    return graph;
   }
+
+  if (tool === 'Grep' || tool === 'Glob') return r ? graphFirst(ctx, r, input, agent) : null;
+
+  if (tool === 'Agent' || tool === 'Task') return r ? reviewerGraph(ctx, r, input) : null;
 
   if (EDIT_TOOLS.has(tool)) {
     if (NO_EDIT_AGENTS.has(agent)) return deny(ctx, runId, 'SA', `${agent} may not edit files`);
@@ -244,7 +325,12 @@ export function onPreToolUse(input, ctx) {
   if (typeof tool === 'string' && tool.startsWith('mcp__') && NO_EDIT_AGENTS.has(agent) && isMcpWrite(tool)) {
     return deny(ctx, runId, 'SA', `${agent} may not call write tools (${tool})`);
   }
+  if (r && typeof tool === 'string' && tool.startsWith('mcp__')) recordGraphQueries(ctx, r, input, agent);
   return null;
+}
+
+function denied(out) {
+  return out?.hookSpecificOutput?.permissionDecision === 'deny';
 }
 
 const MCP_WRITE_VERB = /^(create|edit|update|transition|add|delete|remove|assign|move|set|send|upload|use_figma|generate|post|put|patch|merge|publish|write)/i;

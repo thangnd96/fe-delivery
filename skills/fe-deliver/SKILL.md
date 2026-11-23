@@ -29,13 +29,26 @@ Then put the task on its own branch, named from the profile's `jira.branch_templ
 
 Add `--stop-after plan` when the user wrote `[stop-after:plan]`.
 
+`fe run start` also rebuilds the pilothify graph in full. That takes 10–20 s on a 3,500-file repository, plus the wait when a git hook rebuild is still running. Give this Bash call `timeout: 600000`.
+
 Then run `fe run status`. If `hooks_registered` is false, stop and tell the user that the fe-delivery hooks are not active. If `stop_after` is `plan`, this is a **shadow run**: see "Shadow runs" below.
 
 ## 3. Graph
-Run `fe graph ensure` to refresh the pilothify code graph (0 LLM tokens). From here on, find code with `pilothify query "<CodeIdentifiers>" --budget 2000`, `pilothify explain "<Name>"` and `pilothify affected "<file|symbol>"`. Fall back to a bounded grep when a query exits 4. Use code identifiers, not Vietnamese prose. The graph is for navigation, not evidence.
+`fe run start` already rebuilt the pilothify code graph in full (0 LLM tokens), so it matches the checked-out branch and your uncommitted changes. (With `graph.enforce = off` it did not; run `fe graph ensure` yourself.) Read its `graph:` line. If it says the refresh FAILED, run `fe doctor`, fix pilothify, then run `fe graph ensure`. With `graph.enforce = block`, `fe intake save` refuses until the graph has been refreshed.
+
+From here on:
+- **Find code through the graph first:** `pilothify query "<CodeIdentifiers>" --budget 2000`, `pilothify explain "<Name>"`, `pilothify affected "<file|symbol>"`. Use code identifiers, not Vietnamese prose.
+- **Grep only when a query exits 4** (no match), keep it bounded (`grep -rn "<Name>" src/`), and record it as that query's `fallback` in the intake. Exit 3 means ambiguous: pick one of the listed candidates.
+- **The graph is kept fresh for you:**
+  - fe's checkpoints (`fe intake save`, `fe classify`, `fe verify`, `fe run end`) refresh it when HEAD or the working tree moved, after waiting for any rebuild that is still running;
+  - after a git command that changes the tree (checkout, switch, pull, merge, rebase, reset, stash, restore, cherry-pick, revert), a hook refreshes it in the background;
+  - edits alone do not refresh it. Run `fe graph ensure` before querying code you just wrote.
+- The graph is for navigation, not evidence.
 
 ## 4. Intake
 Use the **fe-intake** subagent with the Jira keys, Figma URLs and the user's request. It returns intake JSON (`references/intake.md`). Save it with `fe intake save -` using a heredoc on stdin. Fix any schema errors it reports.
+
+`fe intake save` also checks the graph step: `codebase.queries` is not empty, every query that exited 4 has a grep `fallback`, and the hooks saw those queries run. With `graph.enforce = warn` (the default) it prints a `warning:` for each gap and keeps it for the report; with `block` it refuses, and you run the missing queries through fe-intake again. Never type queries into the intake that were not run.
 
 ## 5. Classify
 Build the classification input (`references/classify.md`) and run `fe classify -`. Tell the user the tier, risk flags and required gates in two or three lines. If there are blocking questions, ask the user, then re-classify. Never invent an answer.
@@ -69,9 +82,9 @@ The repository is in shadow mode (profile `rollout.mode`), or the user asked for
 4. Run `fe report` (status `PLANNED`), summarise the tier, flags, gates and predicted files for the user, then run `fe run end`.
 
 ## 7. Verify, review, report
-1. Run `fe verify`, then fix failures and run it again. A failing check is recorded as a failure: the run stays INCOMPLETE until the latest run of each check passes. If a check also fails on the base commit, say so in the summary; do not change the profile or the check to make it pass (`[G8]`).
+1. Run `fe verify`, then fix failures and run it again. A failing check is recorded as a failure: the run stays INCOMPLETE until the latest run of each check passes. If a check also fails on the base commit, say so in the summary; do not change the profile or the check to make it pass (`[G8]`). `fe verify` also brings the graph up to the code you wrote.
 2. For UI changes, use the **fe-verifier** subagent (L2 smoke test, L3 Figma comparison). It records results with `fe evidence add`.
-3. Use the **fe-reviewer** subagent for an independent review. Fix the correctness findings, then run `fe verify` again.
+3. Use the **fe-reviewer** subagent for an independent review. It needs a graph that matches the working tree, so its `pilothify affected` sees the new code. If you edited files after the last `fe verify`, run `fe graph ensure` first. While the graph is stale the launch is refused (`[G10]`, `block`) or flagged (`warn`). Fix the correctness findings, then run `fe verify` again.
 4. Run `fe report`, then summarise for the user: status, evidence, gaps, and the instructions found in sources that were not followed.
 5. Run `fe run end`.
 

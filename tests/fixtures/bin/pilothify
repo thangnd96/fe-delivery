@@ -1,0 +1,3 @@
+#!/bin/sh
+# pilothify test double for the unit tests: the real logic is in pilothify-stub.mjs.
+exec node "$(dirname "$0")/pilothify-stub.mjs" "$@"

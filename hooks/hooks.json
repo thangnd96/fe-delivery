@@ -1,5 +1,5 @@
 {
-  "description": "fe-delivery guard: router enforcement, Spec Kit ordering, human gates, risk and diff budgets, measured evidence. No-op outside repositories with .fe-delivery/profile.json.",
+  "description": "fe-delivery guard: router enforcement, Spec Kit ordering, human gates, risk and diff budgets, measured evidence. Graph-first intake and graph freshness (G9, G10, background refresh after git commands). No-op outside repositories with .fe-delivery/profile.json.",
   "hooks": {
     "SessionStart": [
       {
@@ -17,7 +17,7 @@
     ],
     "PreToolUse": [
       {
-        "matcher": "Edit|Write|MultiEdit|NotebookEdit|Bash|Skill|AskUserQuestion|mcp__.*",
+        "matcher": "Edit|Write|MultiEdit|NotebookEdit|Bash|Skill|AskUserQuestion|Grep|Glob|Agent|Task|mcp__.*",
         "hooks": [
           { "type": "command", "command": "node", "args": ["${CLAUDE_PLUGIN_ROOT}/scripts/hook.mjs", "pre-tool-use"], "timeout": 20, "onFailure": "block" }
         ]
